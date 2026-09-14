@@ -57,6 +57,10 @@ class Span(Frozen):
     end: int
     quote: str
     status: SpanStatus
+    occurrences: int = 1
+    """How many times the quote appears in the source. More than one means the
+    span is located but not unique -- we show the first, and the reviewer should
+    know there were others."""
 
     @property
     def located(self) -> bool:
@@ -102,9 +106,21 @@ class Email(Frozen):
 
     @property
     def searchable_text(self) -> str:
-        """Subject and body as one string. Spans are offsets into THIS, so the
-        UI and the span grounder must agree on exactly one representation."""
-        return f"{self.subject}\n\n{self.body}"
+        """The email rendered as one string, headers included.
+
+        This is the single source of truth for character offsets. The prompt shows
+        the model exactly this text, spans index into exactly this text, and the UI
+        highlights exactly this text. If those three ever diverge, a quote lifted
+        from a header becomes ungroundable and a correct extraction gets penalised
+        for evidence it really did have -- so prompts.py renders the email by
+        calling this property rather than formatting its own copy.
+        """
+        return (
+            f"From: {self.from_name} <{self.from_email}>\n"
+            f"Received: {self.received_at.isoformat()}\n"
+            f"Subject: {self.subject}\n\n"
+            f"{self.body}"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +160,24 @@ class MatterRecord(Frozen):
     closed_on: date | None = None
     responsible_attorney_id: str
     adverse_parties: list[str] = []
+
+
+# --------------------------------------------------------------------------- #
+# Model output that could not be used
+# --------------------------------------------------------------------------- #
+
+
+class ParseFailure(Frozen):
+    """The model returned something this stage could not turn into typed data.
+
+    This is a value, not an exception. A malformed response is a routine event in a
+    system built on a language model, and the correct response to it is to send the
+    email to a human -- not to crash the pipeline and not to guess at what was meant.
+    """
+
+    stage: str
+    reason: str
+    raw_excerpt: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +222,10 @@ class Extraction(Frozen):
     key_dates: list[KeyDate] = []
     amounts: list[MonetaryAmount] = []
     summary: str = ""
+    parse_warnings: list[str] = []
+    """Individual list entries the model returned malformed. They are dropped
+    rather than guessed at, and recorded here so the drop is visible in the trace
+    instead of looking like the model simply found nothing."""
 
     @property
     def opposing_parties(self) -> list[Party]:
@@ -323,6 +361,33 @@ class ReviewAction(Frozen):
     note: str = ""
     edits: list[FieldEdit] = []
     acted_at: datetime
+
+
+# --------------------------------------------------------------------------- #
+# Execution trace
+# --------------------------------------------------------------------------- #
+
+
+class StageTrace(Frozen):
+    """What actually happened when a stage ran.
+
+    Carries the raw model response verbatim. Storing only the parsed result would
+    make a disagreement between what the model said and what the system concluded
+    impossible to investigate after the fact, which is the moment you most want to
+    be able to investigate it.
+    """
+
+    email_id: str
+    stage: str
+    provider: str
+    model: str
+    cached: bool = False
+    latency_ms: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    raw_response: str = ""
+    ok: bool = True
+    failure_reason: str | None = None
 
 
 # --------------------------------------------------------------------------- #
