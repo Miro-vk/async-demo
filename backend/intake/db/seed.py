@@ -14,9 +14,10 @@ from intake.corpus.generate import DEFAULT_SEED, generate_corpus, load_corpus, w
 from intake.corpus.naturalize import OVERLAY_PATH, apply_overlay, load_overlay
 from intake.db import repo
 from intake.domain.models import Corpus
+from intake.paths import CORPUS_PATH, DATABASE_PATH
 
-DEFAULT_DB = Path("data/intake.sqlite3")
-DEFAULT_CORPUS = Path("data/corpus.json")
+DEFAULT_DB = DATABASE_PATH
+DEFAULT_CORPUS = CORPUS_PATH
 
 
 def build_corpus(

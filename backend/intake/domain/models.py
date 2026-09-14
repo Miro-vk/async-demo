@@ -279,6 +279,24 @@ class Resolution(Frozen):
     matter_ids: list[str] = []
     conflicts: list[ConflictHit] = []
 
+    checked_party_names: list[str] = []
+    """Which names were actually run against the firm's records."""
+
+    completeness_notes: list[str] = []
+    """Why the check may be incomplete -- no party extracted, a name too vague to
+    look up, an extraction that failed outright."""
+
+    @property
+    def is_vacuous(self) -> bool:
+        """True when nothing was checked.
+
+        A vacuous check produces an empty conflicts list, which looks exactly like
+        a clean result and means the opposite. "We found no conflicts" and "we had
+        no names to look for" must never render the same way, so policy treats this
+        as a reason for review rather than as a clearance.
+        """
+        return not self.checked_party_names
+
     @property
     def max_severity(self) -> ConflictSeverity:
         if not self.conflicts:

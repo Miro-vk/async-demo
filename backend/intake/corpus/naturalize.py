@@ -19,9 +19,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from intake.paths import NATURALIZED_PATH
 from intake.domain.models import Corpus, Email, GroundTruth
 
-OVERLAY_PATH = Path("data/naturalized.json")
+OVERLAY_PATH = NATURALIZED_PATH
 
 SYSTEM_PROMPT = """You rewrite synthetic law-firm intake emails so they read like \
 real mail a person actually typed.

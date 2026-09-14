@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from intake.corpus.generate import generate_corpus
-from intake.db.seed import seed_database
+from intake.db.seed import build_corpus, seed_database
 from intake.pipeline.evaluate import evaluate
 
 
 @pytest.fixture(scope="module")
 def report(tmp_path_factory):
     db_path = tmp_path_factory.mktemp("eval") / "intake.sqlite3"
-    seed_database(generate_corpus(20260517), db_path)
+    # build_corpus, not generate_corpus: the demo runs on naturalized prose, and
+    # measuring the template prose would score an artefact nobody ships.
+    seed_database(build_corpus(20260517, verbose=False), db_path)
     return evaluate(db_path, "stub")
 
 
@@ -51,8 +52,34 @@ def test_most_extracted_values_are_grounded_in_the_source(report) -> None:
 
 def test_evaluation_is_reproducible(tmp_path) -> None:
     db_path = tmp_path / "intake.sqlite3"
-    seed_database(generate_corpus(20260517), db_path)
+    seed_database(build_corpus(20260517, verbose=False), db_path)
     first = evaluate(db_path, "stub")
     second = evaluate(db_path, "stub")
     assert first.classify_correct == second.classify_correct
     assert first.span_status == second.span_status
+
+
+def test_the_conflict_rules_catch_every_planted_trap(report) -> None:
+    """With a perfect extractor, all three trap shapes must be caught. This
+    isolates the rules from the extractor: if this fails, the conflicts logic is
+    broken, not the model."""
+    assert report.traps_total == 7
+    assert report.traps_caught_oracle == report.traps_total, (
+        f"rules missed: {report.trap_misses_oracle}"
+    )
+
+
+def test_end_to_end_trap_misses_are_extraction_failures_only(report) -> None:
+    """Traps the pipeline misses end-to-end should be names that were never
+    extracted -- a different bug, in a different module."""
+    assert set(report.trap_misses_oracle) == set()
+    assert report.traps_caught <= report.traps_caught_oracle
+
+
+def test_the_rules_do_not_assert_identity_promiscuously(report) -> None:
+    """Conflicts on untrapped emails are expected -- the generator seeds real
+    ones. What must stay small is the number graded PROBABLE, which asserts that
+    two names are the same entity."""
+    assert report.untrapped_probable <= 6, (
+        f"{report.untrapped_probable} untrapped emails claim a definite identity match"
+    )

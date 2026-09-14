@@ -24,10 +24,56 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from intake.db import repo
-from intake.domain.enums import EmailClass, PracticeArea, SpanStatus
-from intake.domain.models import Classification, Extraction, GroundTruth, ParseFailure
+from intake.domain.enums import ConflictSeverity, EmailClass, PartyRole, PracticeArea, SpanStatus
+from intake.domain.models import (
+    Classification,
+    Email,
+    Extraction,
+    GroundTruth,
+    ParseFailure,
+    Party,
+    TracedField,
+)
+from intake.domain.records import FirmRecords
+from intake.paths import DATABASE_PATH
+from intake.domain.resolve import resolve
 from intake.llm.client import build_provider
 from intake.pipeline.runner import run_classify, run_extract
+
+# A planted trap describes how the corpus hid a conflict; a rule describes how the
+# system finds one. They are different vocabularies on purpose, and this is the map
+# between them.
+TRAP_TO_RULE = {
+    "CORP_NAME_VARIANT": "ADVERSE_PARTY_IS_CLIENT",
+    "ADVERSE_PARTY_CLOSED_MATTER": "PROSPECT_WAS_ADVERSE_PARTY",
+    "EMAIL_DOMAIN_ONLY": "SENDER_DOMAIN_MATCHES_CLIENT",
+}
+
+
+def oracle_extraction(gt: GroundTruth) -> Extraction:
+    """The extraction a perfect extractor would have produced.
+
+    Running resolve against this isolates the conflict rules from the extractor.
+    If end-to-end trap recall is below oracle recall, the gap is names that were
+    never extracted -- a different problem, fixed in a different module, and worth
+    knowing about separately.
+    """
+    def party(name: str, role: PartyRole) -> Party:
+        return Party(
+            name=TracedField[str](value=name, confidence=1.0, self_reported=1.0),
+            role=role,
+        )
+
+    parties = []
+    if gt.prospective_client:
+        parties.append(party(gt.prospective_client, PartyRole.PROSPECTIVE_CLIENT))
+    parties += [party(n, PartyRole.OPPOSING) for n in gt.opposing_parties]
+    return Extraction(
+        email_id=gt.email_id,
+        parties=parties,
+        matter_type=TracedField[PracticeArea](value=gt.practice_area, confidence=1.0),
+        jurisdiction=TracedField[str](value=gt.jurisdiction, confidence=1.0),
+    )
 
 
 def _norm(text: str | None) -> str:
@@ -56,6 +102,16 @@ class Report:
     amount_found: int = 0
     amount_total: int = 0
     span_status: Counter = field(default_factory=Counter)
+
+    traps_total: int = 0
+    traps_caught: int = 0
+    traps_caught_oracle: int = 0
+    trap_misses: list[str] = field(default_factory=list)
+    trap_misses_oracle: list[str] = field(default_factory=list)
+    untrapped_emails: int = 0
+    untrapped_with_conflicts: int = 0
+    untrapped_probable: int = 0
+    vacuous_checks: int = 0
 
     ambiguous_ids: list[str] = field(default_factory=list)
     conf_on_ambiguous: list[float] = field(default_factory=list)
@@ -120,6 +176,44 @@ def score_extraction(result, gt: GroundTruth, report: Report) -> None:
         report.amount_found += int(any(abs(amount - f) < 0.01 for f in found_amounts))
 
 
+def score_resolution(
+    email: Email, extraction, gt: GroundTruth, records: FirmRecords, report: Report
+) -> None:
+    usable = extraction if isinstance(extraction, Extraction) else None
+    resolution = resolve(email, usable, records)
+    fired = {hit.rule_id for hit in resolution.conflicts}
+
+    if resolution.is_vacuous:
+        report.vacuous_checks += 1
+
+    if gt.planted_trap_rules:
+        for trap in gt.planted_trap_rules:
+            report.traps_total += 1
+            expected = TRAP_TO_RULE[trap]
+            if expected in fired:
+                report.traps_caught += 1
+            else:
+                report.trap_misses.append(f"{gt.email_id}/{trap}")
+
+            oracle = resolve(email, oracle_extraction(gt), records)
+            if expected in {h.rule_id for h in oracle.conflicts}:
+                report.traps_caught_oracle += 1
+            else:
+                report.trap_misses_oracle.append(f"{gt.email_id}/{trap}")
+    else:
+        # Conflicts on untrapped emails are NOT automatically false positives. The
+        # generator draws roughly a fifth of adverse parties from the client pool,
+        # so the corpus contains real conflicts nobody planted, and finding them is
+        # correct behaviour. What is worth watching is how many of those are graded
+        # PROBABLE -- a claim that two names are the same entity. Overstating that
+        # is how a conflicts queue loses its reader.
+        report.untrapped_emails += 1
+        if any(h.severity.rank >= ConflictSeverity.POSSIBLE.rank for h in resolution.conflicts):
+            report.untrapped_with_conflicts += 1
+        if any(h.severity == ConflictSeverity.PROBABLE for h in resolution.conflicts):
+            report.untrapped_probable += 1
+
+
 def _all_traced_fields(extraction: Extraction) -> list:
     fields = [extraction.matter_type, extraction.jurisdiction]
     fields += [p.name for p in extraction.parties]
@@ -139,6 +233,12 @@ def evaluate(db_path: Path, provider_mode: str, limit: int | None = None) -> Rep
     if limit:
         emails = emails[:limit]
 
+    conn = repo.connect(db_path)
+    try:
+        records = FirmRecords(repo.list_clients(conn), repo.list_matters(conn))
+    finally:
+        conn.close()
+
     provider = build_provider(provider_mode)
     report = Report(provider=getattr(provider, "name", provider_mode))
 
@@ -148,7 +248,9 @@ def evaluate(db_path: Path, provider_mode: str, limit: int | None = None) -> Rep
         if gt.is_ambiguous:
             report.ambiguous_ids.append(email.id)
         score_classification(run_classify(email, provider).output, gt, report)
-        score_extraction(run_extract(email, provider).output, gt, report)
+        extraction = run_extract(email, provider).output
+        score_extraction(extraction, gt, report)
+        score_resolution(email, extraction, gt, records, report)
 
     return report
 
@@ -211,12 +313,32 @@ def print_report(report: Report) -> None:
     ungrounded = report.span_status.get("not_found", 0)
     if ungrounded:
         print(f"    {ungrounded} value(s) quoted text that is not in the email.")
+
+    print("\nRESOLVE  (deterministic rules, no model)")
+    print(f"  conflict traps caught     {_pct(report.traps_caught, report.traps_total)}"
+          f"  ({report.traps_caught}/{report.traps_total})")
+    print(f"  with perfect extraction   {_pct(report.traps_caught_oracle, report.traps_total)}"
+          f"  ({report.traps_caught_oracle}/{report.traps_total})")
+    if report.trap_misses:
+        print(f"    missed end-to-end: {', '.join(report.trap_misses)}")
+    if report.trap_misses_oracle:
+        print(f"    missed by the RULES: {', '.join(report.trap_misses_oracle)}")
+    elif report.trap_misses:
+        print("    every miss is an extraction failure, not a rule failure")
+    print(f"  unplanted conflicts       {_pct(report.untrapped_with_conflicts, report.untrapped_emails)}"
+          f"  ({report.untrapped_with_conflicts}/{report.untrapped_emails} untrapped emails)")
+    print(f"    graded PROBABLE         {report.untrapped_probable}"
+          f"   (asserting two names are one entity)")
+    print("    the corpus seeds real conflicts nobody planted, so these are")
+    print("    mostly correct; the PROBABLE count is the one to keep honest")
+    print(f"  vacuous checks            {report.vacuous_checks}"
+          f"   (nothing to check -- must not read as 'no conflicts')")
     print()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Score classify and extract on the corpus")
-    parser.add_argument("--db", type=Path, default=Path("data/intake.sqlite3"))
+    parser.add_argument("--db", type=Path, default=DATABASE_PATH)
     parser.add_argument("--provider", default="auto",
                         choices=["auto", "live", "replay", "stub"])
     parser.add_argument("--limit", type=int, default=None)

@@ -16,7 +16,14 @@ from dataclasses import dataclass
 
 from intake.domain.classify import parse_classification
 from intake.domain.extract import parse_extraction
-from intake.domain.models import Classification, Email, Extraction, ParseFailure, StageTrace
+from intake.domain.models import (
+    Classification,
+    Email,
+    Extraction,
+    ParseFailure,
+    Resolution,
+    StageTrace,
+)
 from intake.llm.client import Provider
 from intake.llm.prompts import build_classification_request, build_extraction_request
 
@@ -25,7 +32,7 @@ from intake.llm.prompts import build_classification_request, build_extraction_re
 class StageResult:
     """A stage's output alongside the record of how it was produced."""
 
-    output: Classification | Extraction | ParseFailure
+    output: Classification | Extraction | Resolution | ParseFailure
     trace: StageTrace
 
     @property
@@ -61,3 +68,30 @@ def run_classify(email: Email, provider: Provider) -> StageResult:
 
 def run_extract(email: Email, provider: Provider) -> StageResult:
     return _run(email, provider, build_extraction_request(email), parse_extraction)
+
+
+def run_resolve(
+    email: Email, extraction: Extraction | ParseFailure | None, records
+) -> StageResult:
+    """Stage 3. Deterministic -- no provider, no network, no model.
+
+    Still produces a trace, because the UI shows all four stages side by side and
+    "this conclusion came from rules, not from a model" is one of the more useful
+    things a reviewer can know about a step.
+    """
+    from intake.domain.resolve import resolve
+
+    usable = extraction if isinstance(extraction, Extraction) else None
+    resolution = resolve(email, usable, records)
+    return StageResult(
+        output=resolution,
+        trace=StageTrace(
+            email_id=email.id,
+            stage="resolve",
+            provider="deterministic",
+            model="rules",
+            cached=False,
+            raw_response="",
+            ok=True,
+        ),
+    )

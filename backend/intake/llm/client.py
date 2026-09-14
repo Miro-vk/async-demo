@@ -30,9 +30,10 @@ from pathlib import Path
 from typing import Protocol
 
 from intake.llm.prompts import PromptSpec
+from intake.paths import LLM_CACHE_PATH
 
 DEFAULT_MODEL = "claude-opus-5"
-DEFAULT_CACHE_PATH = Path("data/llm_cache.json")
+DEFAULT_CACHE_PATH = LLM_CACHE_PATH
 
 
 @dataclass(frozen=True)
@@ -317,16 +318,7 @@ class StubProvider:
             area_conf = 0.7 if len(areas) == 1 else 0.45
 
         jurisdiction = _JURISDICTION_RE.search(text)
-        parties = [
-            {
-                "name": match.group(1),
-                "role": "opposing",
-                "is_organization": True,
-                "confidence": 0.5,
-                "quote": match.group(1),
-            }
-            for match in list(_ORG_RE.finditer(text))[:3]
-        ]
+        parties = self._parties(text)
 
         return {
             "parties": parties,
@@ -340,6 +332,46 @@ class StubProvider:
             "amounts": self._amounts(text),
             "summary": "Extracted by offline stub heuristics, not by a model.",
         }
+
+    def _parties(self, text: str) -> list[dict]:
+        """Sender first, then organisations named in the body.
+
+        The sender is the inquiring party and everyone else is provisionally
+        adverse. That is a crude rule and it is wrong whenever someone writes on
+        another party's behalf -- hence the low confidence, which is what sends
+        these to a human rather than into an automatic conflicts clearance.
+        """
+        parties: list[dict] = []
+        header, _, remainder = text.partition("\n")
+        sender = header[len("From: ") :].split("<")[0].strip() if header.startswith("From: ") else ""
+
+        # Organisations appearing in the From line or the signature block are the
+        # sender's own; the rest of the body is where counterparties live.
+        signature = "\n".join(text.rstrip().splitlines()[-4:])
+        own_orgs = {m.group(1) for m in _ORG_RE.finditer(header)}
+        own_orgs |= {m.group(1) for m in _ORG_RE.finditer(signature)}
+
+        if sender:
+            parties.append(
+                {"name": sender, "role": "prospective_client", "is_organization": False,
+                 "confidence": 0.55, "quote": sender}
+            )
+        for name in sorted(own_orgs):
+            parties.append(
+                {"name": name, "role": "prospective_client", "is_organization": True,
+                 "confidence": 0.5, "quote": name}
+            )
+        for match in _ORG_RE.finditer(remainder):
+            name = match.group(1)
+            if name in own_orgs or any(p["name"] == name for p in parties):
+                continue
+            parties.append(
+                {"name": name, "role": "opposing", "is_organization": True,
+                 "confidence": 0.5, "quote": name}
+            )
+            if len(parties) >= 6:
+                break
+        return parties
 
     def _dates(self, text: str) -> list[dict]:
         found: list[dict] = []

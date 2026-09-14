@@ -91,6 +91,7 @@ _SEVERITY_RANK = {
 class MatchMethod(str, Enum):
     EXACT = "exact"
     NORMALIZED = "normalized"
+    STEM_ONLY = "stem_only"   # same distinguishing words, different entity suffix
     TOKEN_SET = "token_set"
     EMAIL_ADDRESS = "email_address"
     EMAIL_DOMAIN = "email_domain"
