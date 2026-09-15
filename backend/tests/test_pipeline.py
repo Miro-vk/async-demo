@@ -186,3 +186,58 @@ def test_stub_output_parses_cleanly_for_every_email_in_the_corpus() -> None:
         assert not extraction.failed, f"{sample.id}: {extraction.trace.failure_reason}"
         assert isinstance(classification.output.label.value, EmailClass)
         assert isinstance(extraction.output, Extraction)
+
+
+# --------------------------------------------------------------------------- #
+# Response block handling
+# --------------------------------------------------------------------------- #
+
+
+class _Block:
+    """Stands in for an SDK content block without importing the SDK."""
+
+    def __init__(self, type_: str, text: str | None = None, thinking: str | None = None):
+        self.type = type_
+        if text is not None:
+            self.text = text
+        if thinking is not None:
+            self.thinking = thinking
+
+
+def test_text_is_selected_by_block_type_not_position() -> None:
+    """Regression guard. Current models think by default, so content[0] is
+    routinely a ThinkingBlock; `content[0].text` raised AttributeError on every
+    live call."""
+    from intake.llm.client import text_from_blocks
+
+    content = [
+        _Block("thinking", thinking="Let me consider the sender..."),
+        _Block("text", text='{"label": "new_matter"}'),
+    ]
+    assert text_from_blocks(content) == '{"label": "new_matter"}'
+
+
+def test_multiple_text_blocks_are_joined() -> None:
+    from intake.llm.client import text_from_blocks
+
+    content = [_Block("text", text="part one"), _Block("text", text="part two")]
+    assert text_from_blocks(content) == "part one\npart two"
+
+
+def test_a_response_with_no_text_yields_an_empty_string() -> None:
+    """A refusal, or thinking that hit the cap. The empty string becomes a
+    ParseFailure downstream and the email goes to a human -- no crash."""
+    from intake.llm.client import text_from_blocks
+
+    assert text_from_blocks([_Block("thinking", thinking="...")]) == ""
+    assert text_from_blocks([]) == ""
+    assert text_from_blocks(None) == ""
+
+
+def test_an_empty_response_routes_to_review_rather_than_crashing(email) -> None:
+    from intake.domain.models import ParseFailure
+
+    result = run_classify(email, ScriptedProvider({"classify": ""}))
+    assert result.failed
+    assert isinstance(result.output, ParseFailure)
+    assert "empty" in result.output.reason

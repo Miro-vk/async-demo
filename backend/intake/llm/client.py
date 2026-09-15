@@ -45,6 +45,25 @@ class LLMResponse:
     latency_ms: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
+    stop_reason: str | None = None
+
+
+def text_from_blocks(content) -> str:
+    """Join the text blocks of a response, ignoring every other block type.
+
+    Current models think by default, so `content[0]` is routinely a ThinkingBlock
+    and indexing it raises. Blocks must be selected by type, never by position.
+
+    Returns "" when a response carries no text at all -- a refusal, or thinking
+    that hit the token cap. That empty string becomes a ParseFailure downstream
+    and routes the email to a human, which is the behaviour this pipeline is built
+    around, so there is nothing to special-case here.
+    """
+    return "\n".join(
+        block.text
+        for block in (content or [])
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+    ).strip()
 
 
 class CacheMiss(RuntimeError):
@@ -128,12 +147,13 @@ class AnthropicProvider:
         )
         elapsed = int((time.monotonic() - started) * 1000)
         return LLMResponse(
-            text=message.content[0].text,
+            text=text_from_blocks(message.content),
             model=self.model,
             provider=self.name,
             latency_ms=elapsed,
             input_tokens=message.usage.input_tokens,
             output_tokens=message.usage.output_tokens,
+            stop_reason=getattr(message, "stop_reason", None),
         )
 
 
