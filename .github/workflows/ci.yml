@@ -57,3 +57,32 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # The README's first command is `docker compose up`. Building the image here is
+  # the only way that claim gets checked -- it cannot be verified in the sandbox
+  # this repo was written in, which has a docker CLI but no daemon.
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t intake-demo .
+
+      - name: Boot it and check it actually serves
+        run: |
+          docker run -d --name intake -p 8000:8000 intake-demo
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/health >/dev/null && break
+            sleep 2
+          done
+          echo "--- health ---"
+          curl -sf http://localhost:8000/api/health | tee /dev/stderr | grep -q '"ok":true'
+          echo "--- the inbox has been processed at build time ---"
+          curl -sf http://localhost:8000/api/inbox | grep -q '"review"'
+          echo "--- the front end is served on the same port ---"
+          curl -sf http://localhost:8000/ | grep -qi '<!doctype html'
+
+      - name: Container logs
+        if: always()
+        run: docker logs intake || true
