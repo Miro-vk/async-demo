@@ -92,7 +92,10 @@ export interface Dispatch {
 export interface Reason {
   code: string;
   message: string;
+  /** Machine-readable: the UI scrolls to this. Never rendered. */
   field_path: string | null;
+  /** The same field, in English. Rendered. */
+  field_label: string;
   rule_id: string | null;
 }
 

@@ -116,7 +116,7 @@ def adverse_party_is_client(ctx: ConflictContext) -> list[ConflictHit]:
                     matched_value=match.client.display_name,
                     score=match.score,
                     explanation=(
-                        f"The inquiry names '{name}' as an opposing party. That is "
+                        f"The inquiry names \u201c{name}\u201d as an opposing party. That is "
                         f"{how} {standing}, {match.client.display_name} "
                         f"({match.client.id}). If they are the same entity, acting "
                         f"on this matter would put the firm against its own client."
@@ -166,9 +166,9 @@ def prospect_was_adverse_party(ctx: ConflictContext) -> list[ConflictHit]:
                     matched_value=match.adverse_name,
                     score=match.score,
                     explanation=(
-                        f"'{name}' is asking the firm to act, and is "
+                        f"\u201c{name}\u201d is asking the firm to act, and is "
                         f"{describe_match(match.method, name, match.adverse_name)} "
-                        f"'{match.adverse_name}', an adverse party on {matter.id} "
+                        f"\u201c{match.adverse_name}\u201d, an adverse party on {matter.id} "
                         f"({matter.caption}), which the firm ran for {client_name}. "
                         f"That matter is {status}; a closed matter does not clear this."
                     ),

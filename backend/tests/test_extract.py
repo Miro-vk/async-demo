@@ -153,7 +153,9 @@ def test_one_bad_party_does_not_lose_the_others(email) -> None:
     payload["parties"] = [FULL["parties"][0], {"role": "opposing"}, FULL["parties"][1]]
     result = parse_extraction(email, json.dumps(payload))
     assert len(result.parties) == 2
-    assert any("party[1]" in w for w in result.parse_warnings)
+    assert any("second party" in w for w in result.parse_warnings), (
+        f"the drop should name which party it was: {result.parse_warnings}"
+    )
 
 
 def test_a_dropped_entry_is_always_recorded(email) -> None:
@@ -169,14 +171,14 @@ def test_a_dropped_entry_is_always_recorded(email) -> None:
 def test_a_list_field_sent_as_a_scalar_is_reported(email) -> None:
     result = parse_extraction(email, json.dumps({"parties": "Victor Kavanagh"}))
     assert result.parties == []
-    assert any("not a list" in w for w in result.parse_warnings)
+    assert any("unusable shape" in w for w in result.parse_warnings)
 
 
 def test_an_unrecognised_role_is_flagged_not_guessed(email) -> None:
     payload = {"parties": [{"name": "Victor Kavanagh", "role": "the aggrieved"}]}
     result = parse_extraction(email, json.dumps(payload))
     assert result.parties[0].role == PartyRole.UNKNOWN
-    assert any("unrecognised role" in w for w in result.parse_warnings)
+    assert any("does not recognise" in w for w in result.parse_warnings)
 
 
 # --------------------------------------------------------------------------- #

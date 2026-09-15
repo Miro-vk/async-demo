@@ -156,7 +156,17 @@ kbd {
 .why-item:hover { border-color: var(--ink); }
 .why-title { font-weight: 600; font-size: 12.5px; }
 .why-message { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
-.why-ref { font-family: var(--mono); font-size: 10.5px; color: var(--ink-muted); }
+.why-ref { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.why-where {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+  font-weight: 600; color: var(--ink-muted);
+}
+/* The rule id is an identifier a reviewer can quote when clearing a conflict, so
+   it stays verbatim -- deliberately, unlike the field paths it sits beside. */
+.why-rule {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-muted);
+  background: var(--surface-inset); padding: 1px 5px; border-radius: var(--r1);
+}
 
 .detail-body { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(460px, 1fr); gap: var(--s5); align-items: start; }
 @media (max-width: 1100px) { .detail-body { grid-template-columns: 1fr; } }

@@ -88,9 +88,9 @@ def route(
     by_id = {a.id: a for a in attorneys}
 
     if label == EmailClass.VENDOR_OR_SPAM:
-        return None, "solicitation; no attorney assigned"
+        return None, "this is a solicitation, so no attorney is assigned"
     if label == EmailClass.UNCLEAR:
-        return None, "email does not fit an intake category; needs a human before routing"
+        return None, "the email fits no intake category, so a person should route it"
 
     # Existing-client mail goes to whoever already owns the file. Reassigning it on
     # practice area would cut across a relationship the firm already has.
@@ -111,11 +111,11 @@ def route(
 
     area = extraction.matter_type.value if extraction else None
     if area is None or area == PracticeArea.UNKNOWN:
-        return None, "no practice area determined, so no routing target"
+        return None, "no practice area could be determined from the email"
 
     eligible = [a for a in attorneys if area in a.practice_areas]
     if not eligible:
-        return None, f"no attorney covers {PRACTICE_AREA_LABELS.get(area, area.value)}"
+        return None, f"no attorney here covers {PRACTICE_AREA_LABELS.get(area, area.value)}"
 
     with_room = [a for a in eligible if a.has_headroom]
     if not with_room:

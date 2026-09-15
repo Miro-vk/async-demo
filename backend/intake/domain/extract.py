@@ -21,6 +21,7 @@ from datetime import date, datetime
 from typing import Any
 
 from intake.domain import confidence, spans, validators
+from intake.domain.labels import ordinal
 from intake.domain.enums import PartyRole, PracticeArea, ValidatorStatus
 from intake.domain.models import (
     Email,
@@ -212,17 +213,17 @@ def _parse_parties(source: str, raw: Any, warnings: list[str]) -> list[Party]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        warnings.append(f"'parties' was {type(raw).__name__}, not a list; ignored")
+        warnings.append("The list of parties came back in an unusable shape and was ignored.")
         return []
 
     parties: list[Party] = []
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            warnings.append(f"party[{index}] was not an object; dropped")
+            warnings.append(f"The {ordinal(index)} party came back malformed, so it was dropped.")
             continue
         name = as_str(entry.get("name"))
         if name is None:
-            warnings.append(f"party[{index}] had no usable name; dropped")
+            warnings.append(f"The {ordinal(index)} party had no usable name, so it was dropped.")
             continue
 
         validator, note = validators.validate_party_name(name)
@@ -230,7 +231,8 @@ def _parse_parties(source: str, raw: Any, warnings: list[str]) -> list[Party]:
         span = spans.ground_value(source, as_str(entry.get("quote")), name)
         role = ROLE_ALIASES.get(str(entry.get("role", "")).strip().lower(), PartyRole.UNKNOWN)
         if entry.get("role") is not None and role == PartyRole.UNKNOWN:
-            warnings.append(f"party[{index}] had unrecognised role {entry.get('role')!r}")
+            warnings.append(f"The {ordinal(index)} party was given a role this system does not recognise "
+                f"({entry.get('role')}), so its role is recorded as unclear.")
 
         parties.append(
             Party(
@@ -258,20 +260,21 @@ def _parse_key_dates(
     if raw is None:
         return []
     if not isinstance(raw, list):
-        warnings.append(f"'key_dates' was {type(raw).__name__}, not a list; ignored")
+        warnings.append("The list of dates came back in an unusable shape and was ignored.")
         return []
 
     dates: list[KeyDate] = []
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            warnings.append(f"key_dates[{index}] was not an object; dropped")
+            warnings.append(f"The {ordinal(index)} date came back malformed, so it was dropped.")
             continue
         raw_value = entry.get("value")
         parsed = parse_date_value(raw_value)
         if parsed is None:
             if raw_value is not None:
                 warnings.append(
-                    f"key_dates[{index}] value {raw_value!r} is not a date; dropped"
+                    f"The {ordinal(index)} date was given as \u201c{raw_value}\u201d, which is not a "
+                    f"date, so it was dropped."
                 )
             continue
 
@@ -300,20 +303,21 @@ def _parse_amounts(source: str, raw: Any, warnings: list[str]) -> list[MonetaryA
     if raw is None:
         return []
     if not isinstance(raw, list):
-        warnings.append(f"'amounts' was {type(raw).__name__}, not a list; ignored")
+        warnings.append("The list of amounts came back in an unusable shape and was ignored.")
         return []
 
     amounts: list[MonetaryAmount] = []
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            warnings.append(f"amounts[{index}] was not an object; dropped")
+            warnings.append(f"The {ordinal(index)} amount came back malformed, so it was dropped.")
             continue
         raw_value = entry.get("value")
         parsed = parse_amount_value(raw_value)
         if parsed is None:
             if raw_value is not None:
                 warnings.append(
-                    f"amounts[{index}] value {raw_value!r} is not a number; dropped"
+                    f"The {ordinal(index)} amount was given as \u201c{raw_value}\u201d, which is not "
+                    f"a number, so it was dropped."
                 )
             continue
 

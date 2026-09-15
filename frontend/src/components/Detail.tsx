@@ -68,6 +68,14 @@ export function Detail({ detail, thresholds, onBack, onReviewed }: Props) {
     [result, rows],
   );
 
+  // The fields panel already names each field the way a person would ("opposing
+  // party", not "second party's name"), so reasons borrow those labels and fall
+  // back to the server's rendering of the path.
+  const rowLabels = useMemo(
+    () => new Map(rows.map((row) => [row.id, row.label])),
+    [rows],
+  );
+
   const flagged = useMemo(
     () => new Set((result?.decision.reasons ?? []).map((r) => r.field_path).filter(Boolean) as string[]),
     [result],
@@ -146,7 +154,12 @@ export function Detail({ detail, thresholds, onBack, onReviewed }: Props) {
                     {REASON_TITLES[reason.code] ?? reason.code.replace(/_/g, " ")}
                   </span>
                   <span className="why-message">{reason.message}</span>
-                  <span className="why-ref">{reason.rule_id ?? reason.field_path}</span>
+                  <span className="why-ref">
+                    <span className="why-where">
+                      {humanize(rowLabels.get(reason.field_path ?? "") ?? reason.field_label)}
+                    </span>
+                    {reason.rule_id && <code className="why-rule">{reason.rule_id}</code>}
+                  </span>
                 </button>
               </li>
             ))}

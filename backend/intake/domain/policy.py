@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from intake.domain import labels
 from intake.domain.conflicts import CLIENT_SIDE_ROLES, CONFLICT_RELEVANT_ROLES
 from intake.domain.enums import (
     ConflictSeverity,
@@ -96,8 +97,8 @@ def decide(
                 Reason(
                     code=ReviewReasonCode.MODEL_PARSE_FAILURE,
                     message=(
-                        f"Classification could not be read: "
-                        f"{classification.reason if classification else 'stage did not run'}."
+                        f"The classifier's answer could not be read: "
+                        f"{classification.reason if classification else 'the stage did not run'}."
                     ),
                     field_path="classification",
                 )
@@ -157,9 +158,10 @@ def _classification_reasons(
             Reason(
                 code=ReviewReasonCode.LOW_CONFIDENCE_CLASSIFICATION,
                 message=(
-                    f"Classified as '{field.value.value}' with confidence "
-                    f"{field.confidence:.2f}, below the {t.classification:.2f} "
-                    f"threshold. {_span_note(field)}"
+                    f"Read as {labels.email_class(field.value)}, but only with confidence "
+                    f"{field.confidence:.2f} — below the {t.classification:.2f} this firm "
+                    f"requires before acting on a label nobody has read. "
+                    f"{_span_note(field)}"
                 ),
                 field_path="classification.label",
             )
@@ -171,7 +173,7 @@ def _span_note(field: TracedField) -> str:
     if field.span is None:
         return "The model offered no supporting quote."
     if field.span.status == SpanStatus.NOT_FOUND:
-        return f"Its supporting quote ({field.span.quote!r}) is not in the email."
+        return f"The quote it offered, \u201c{field.span.quote}\u201d, is not in the email."
     return ""
 
 
@@ -191,8 +193,8 @@ def _extraction_reasons(
             Reason(
                 code=ReviewReasonCode.MODEL_PARSE_FAILURE,
                 message=(
-                    f"Extraction could not be read: "
-                    f"{extraction.reason if extraction else 'stage did not run'}."
+                    f"The extracted facts could not be read: "
+                    f"{extraction.reason if extraction else 'the stage did not run'}."
                 ),
                 field_path="extraction",
             )
@@ -204,7 +206,7 @@ def _extraction_reasons(
         reasons.append(
             Reason(
                 code=ReviewReasonCode.PARTIAL_PARSE,
-                message=f"Part of the extraction was discarded: {warning}",
+                message=f"Part of what the model returned was discarded. {warning}",
                 field_path="extraction",
             )
         )
@@ -218,8 +220,10 @@ def _extraction_reasons(
                 Reason(
                     code=ReviewReasonCode.UNVERIFIED_SPAN,
                     message=(
-                        f"{path} = {field.value!r} is supported by a quote that does "
-                        f"not appear in the email: {field.span.quote!r}."
+                        f"{labels.field_name(path).capitalize()} was given as "
+                        f"\u201c{field.value}\u201d, but the quote offered to support "
+                        f"it does not appear anywhere in the email: "
+                        f"\u201c{field.span.quote}\u201d."
                     ),
                     field_path=path,
                 )
@@ -228,7 +232,11 @@ def _extraction_reasons(
             reasons.append(
                 Reason(
                     code=ReviewReasonCode.VALIDATOR_FAILED,
-                    message=f"{path} = {field.value!r} failed validation: {field.validator_note}",
+                    message=(
+                        f"{labels.field_name(path).capitalize()} was given as "
+                        f"\u201c{field.value}\u201d, which did not pass its check: "
+                        f"{field.validator_note}."
+                    ),
                     field_path=path,
                 )
             )
@@ -269,8 +277,8 @@ def _party_reasons(
                 Reason(
                     code=ReviewReasonCode.MISSING_REQUIRED_FIELD,
                     message=(
-                        "No party was named and the sender matches no client record, "
-                        "so there is nobody to run a conflicts check against."
+                        "Nobody is named in this email, and the sender's address matches "
+                        "no client on file, so there is no one to check for conflicts."
                     ),
                     field_path="extraction.parties",
                 )
@@ -280,15 +288,18 @@ def _party_reasons(
             # so the conflicts check runs and comes back clean, but none of them is
             # the person seeking representation. Someone writing on a friend's behalf
             # produces exactly this -- a green result about the wrong party.
-            others = ", ".join(f"'{p.name.value}' ({p.role.value})" for p in named)
+            others = ", ".join(
+                f"\u201c{p.name.value}\u201d as {labels.party_role(p.role)}"
+                for p in named
+            )
             reasons.append(
                 Reason(
                     code=ReviewReasonCode.MISSING_REQUIRED_FIELD,
                     message=(
-                        f"The email names {others}, but none of them is the "
-                        f"prospective client. The person who would actually be "
-                        f"represented was never identified, so the conflicts check "
-                        f"does not cover them and a clean result means nothing."
+                        f"This email names {others} \u2014 but not the person who would "
+                        f"actually be represented. The conflicts check ran against "
+                        f"everyone it could find and came back clean, which says "
+                        f"nothing at all about the client."
                     ),
                     field_path="extraction.parties",
                 )
@@ -314,10 +325,12 @@ def _party_reasons(
                 Reason(
                     code=ReviewReasonCode.LOW_CONFIDENCE_FIELD,
                     message=(
-                        f"Party '{party.name.value}' ({party.role.value}) was extracted "
-                        f"with confidence {party.name.confidence:.2f}, below the "
-                        f"{t.party_name:.2f} bar for names that drive a conflicts "
-                        f"check. {_span_note(party.name)}"
+                        f"\u201c{party.name.value}\u201d was read as "
+                        f"{labels.party_role(party.role)} with confidence "
+                        f"{party.name.confidence:.2f}. Names are held to "
+                        f"{t.party_name:.2f} because they are what the conflicts check "
+                        f"runs against, and a shaky name makes a clean result "
+                        f"meaningless. {_span_note(party.name)}"
                     ),
                     field_path=f"extraction.parties[{index}].name",
                 )
@@ -339,8 +352,8 @@ def _matter_type_reasons(
             Reason(
                 code=ReviewReasonCode.AMBIGUOUS_MATTER_TYPE,
                 message=(
-                    "No practice area could be determined, so the inquiry cannot be "
-                    "routed to the right attorney."
+                    "No practice area could be determined from the text, so there is no "
+                    "way to tell which attorney should see this."
                 ),
                 field_path="extraction.matter_type",
             )
@@ -350,9 +363,10 @@ def _matter_type_reasons(
             Reason(
                 code=ReviewReasonCode.AMBIGUOUS_MATTER_TYPE,
                 message=(
-                    f"Practice area read as '{field.value.value}' with confidence "
-                    f"{field.confidence:.2f}, below {t.matter_type:.2f}. The facts may "
-                    f"fit more than one area. {_span_note(field)}"
+                    f"The facts look like {labels.practice_area(field.value)}, but only "
+                    f"with confidence {field.confidence:.2f} against a bar of "
+                    f"{t.matter_type:.2f}. They may fit more than one practice area. "
+                    f"{_span_note(field)}"
                 ),
                 field_path="extraction.matter_type",
             )
@@ -370,7 +384,7 @@ def _conflict_reasons(resolution: Resolution | None, label: EmailClass) -> list[
         return [
             Reason(
                 code=ReviewReasonCode.CONFLICT_CHECK_VACUOUS,
-                message="The conflicts check did not run.",
+                message="The conflicts check never ran, so nothing has been cleared.",
                 field_path="resolution",
             )
         ]
@@ -393,8 +407,8 @@ def _conflict_reasons(resolution: Resolution | None, label: EmailClass) -> list[
             Reason(
                 code=ReviewReasonCode.CONFLICT_CHECK_VACUOUS,
                 message=(
-                    f"No conflicts were found because no party names were checked. "
-                    f"This is not a clearance. {detail}"
+                    f"No conflicts were found \u2014 because no names were checked. That "
+                    f"is not the same as being clear. {detail}"
                 ),
                 field_path="resolution",
             )
@@ -415,7 +429,7 @@ def _dispatch_reasons(dispatch: Dispatch | None, label: EmailClass) -> list[Reas
         return [
             Reason(
                 code=ReviewReasonCode.NO_ATTORNEY_AVAILABLE,
-                message=f"No attorney could be assigned: {detail}.",
+                message=f"Nobody could be assigned to this: {detail}.",
                 field_path="dispatch.attorney_id",
             )
         ]

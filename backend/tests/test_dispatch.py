@@ -111,7 +111,7 @@ def test_an_uncovered_practice_area_routes_nowhere(records) -> None:
         EmailClass.NEW_MATTER, extraction(PracticeArea.PERSONAL_INJURY), None, records, ATTORNEYS
     )
     assert attorney is None
-    assert "no attorney covers" in why
+    assert "no attorney" in why and "personal injury" in why
 
 
 def test_an_unknown_practice_area_routes_nowhere(records) -> None:

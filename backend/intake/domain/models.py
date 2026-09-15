@@ -371,6 +371,20 @@ class Reason(Frozen):
     field_path: str | None = None
     rule_id: str | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def field_label(self) -> str:
+        """`field_path` in English.
+
+        The path stays machine-readable because the UI scrolls to it; this is what
+        a person is shown. "extraction.parties[0].name" is the inside of the
+        program, and putting it in front of a reviewer makes a careful system look
+        careless.
+        """
+        from intake.domain.labels import field_heading
+
+        return field_heading(self.field_path)
+
 
 class Decision(Frozen):
     action: DecisionAction

@@ -312,7 +312,9 @@ def test_naming_people_who_are_not_the_client_still_goes_to_review() -> None:
     )
     assert result.action == DecisionAction.REVIEW
     assert ReviewReasonCode.MISSING_REQUIRED_FIELD.value in codes(result)
-    assert "never identified" in " ".join(r.message for r in result.reasons)
+    message = " ".join(r.message for r in result.reasons)
+    assert "Felicity Bramble" in message, "name the people it did find"
+    assert "third party" in message, "and say what it took them to be"
 
 
 def test_discarded_extraction_output_is_surfaced() -> None:
@@ -363,3 +365,60 @@ def test_thresholds_are_the_caution_dial() -> None:
     inputs = (classification(confidence=0.80), extraction(), resolution(), dispatch())
     assert decide(*inputs, DEFAULT).action == DecisionAction.PROCEED
     assert decide(*inputs, Thresholds(classification=0.9)).action == DecisionAction.REVIEW
+
+
+# --------------------------------------------------------------------------- #
+# Reasons are read by people
+# --------------------------------------------------------------------------- #
+
+
+def test_no_reason_message_leaks_wire_format() -> None:
+    """Enum values and field paths are how this system talks to itself. A reviewer
+    seeing "(prospective_client)" or "extraction.parties[0].name" is being shown
+    the inside of the program.
+
+    Checked across every reason the whole corpus produces, not a sample, because
+    this is the kind of thing that creeps back in one message at a time.
+    """
+    import re
+
+    from intake.db import repo
+    from intake.paths import DATABASE_PATH
+
+    if not DATABASE_PATH.exists():
+        pytest.skip("no processed database; run `make seed && make process`")
+
+    conn = repo.connect(DATABASE_PATH)
+    try:
+        runs = repo.list_runs(conn)
+    finally:
+        conn.close()
+
+    snake = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b")
+    path = re.compile(r"\b(?:extraction|classification|resolution|dispatch)\.[a-z_]")
+    # "party[2]" has no underscore and no dot, and is just as much wire format.
+    indexed = re.compile(r"\b[a-z_]+\[\d+\]")
+
+    offenders: list[str] = []
+    for run in runs:
+        for reason in run.decision.reasons:
+            text = reason.message
+            if snake.search(text) or path.search(text) or indexed.search(text):
+                offenders.append(f"{run.email_id} [{reason.code.value}]: {reason.message}")
+
+    assert not offenders, "wire format in text a human reads:\n" + "\n".join(offenders[:5])
+
+
+def test_every_reason_offers_a_readable_field_label() -> None:
+    result = decide(
+        classification(confidence=0.4),
+        extraction(area=PracticeArea.UNKNOWN, parties=[party(confidence=0.2)]),
+        resolution(conflicts=[conflict()]),
+        Dispatch(email_id="em-1", attorney_id=None, routing_reason="no area"),
+    )
+    assert result.reasons
+    for reason in result.reasons:
+        assert reason.field_label
+        assert "_" not in reason.field_label
+        assert "." not in reason.field_label
+        assert reason.field_label[0].isupper()
