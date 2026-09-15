@@ -11,9 +11,19 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from intake.domain.enums import ClientType, DecisionAction, EmailClass, MatterStatus, PracticeArea
+from intake.domain.enums import (
+    ClientType,
+    DecisionAction,
+    EmailClass,
+    MatterStatus,
+    PracticeArea,
+    ReviewOutcome,
+)
 from intake.domain.models import (
     Attorney,
+    FieldEdit,
+    PipelineResult,
+    ReviewAction,
     ClientRecord,
     Corpus,
     Email,
@@ -187,3 +197,105 @@ def list_ground_truth(conn: sqlite3.Connection) -> list[GroundTruth]:
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM schema_meta WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
+
+
+# --------------------------------------------------------------------------- #
+# Pipeline runs and review actions
+# --------------------------------------------------------------------------- #
+
+
+def save_run(conn: sqlite3.Connection, result: PipelineResult, processed_at: datetime) -> None:
+    """Upsert a run. Re-processing an email replaces its run; the review log is
+    a separate table precisely so it is not replaced with it."""
+    provider = result.traces[0].provider if result.traces else "unknown"
+    model = result.traces[0].model if result.traces else "unknown"
+    conn.execute(
+        "INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?,?) "
+        "ON CONFLICT(email_id) DO UPDATE SET "
+        "processed_at=excluded.processed_at, action=excluded.action, "
+        "reviewed=excluded.reviewed, provider=excluded.provider, "
+        "model=excluded.model, result_json=excluded.result_json",
+        (
+            result.email_id,
+            processed_at.isoformat(),
+            result.decision.action.value,
+            int(result.review is not None),
+            provider,
+            model,
+            result.model_dump_json(),
+        ),
+    )
+    conn.commit()
+
+
+def get_run(conn: sqlite3.Connection, email_id: str) -> PipelineResult | None:
+    row = conn.execute(
+        "SELECT result_json FROM pipeline_runs WHERE email_id = ?", (email_id,)
+    ).fetchone()
+    return PipelineResult.model_validate_json(row["result_json"]) if row else None
+
+
+def list_runs(
+    conn: sqlite3.Connection,
+    action: DecisionAction | None = None,
+    pending_only: bool = False,
+) -> list[PipelineResult]:
+    sql = "SELECT result_json FROM pipeline_runs"
+    clauses, params = [], []
+    if action is not None:
+        clauses.append("action = ?")
+        params.append(action.value)
+    if pending_only:
+        clauses.append("reviewed = 0")
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY email_id"
+    return [PipelineResult.model_validate_json(r["result_json"]) for r in conn.execute(sql, params)]
+
+
+def record_review(conn: sqlite3.Connection, action: ReviewAction) -> None:
+    """Append to the audit log. Never updates an existing row."""
+    conn.execute(
+        "INSERT INTO review_actions (email_id, outcome, reviewer, note, edits_json, acted_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (
+            action.email_id,
+            action.outcome.value,
+            action.reviewer,
+            action.note,
+            _j([e.model_dump(mode="json") for e in action.edits]),
+            action.acted_at.isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def list_review_actions(conn: sqlite3.Connection, email_id: str | None = None) -> list[ReviewAction]:
+    sql = "SELECT * FROM review_actions"
+    params: list = []
+    if email_id:
+        sql += " WHERE email_id = ?"
+        params.append(email_id)
+    sql += " ORDER BY id"
+    return [
+        ReviewAction(
+            email_id=r["email_id"],
+            outcome=ReviewOutcome(r["outcome"]),
+            reviewer=r["reviewer"],
+            note=r["note"],
+            edits=[FieldEdit.model_validate(e) for e in json.loads(r["edits_json"])],
+            acted_at=datetime.fromisoformat(r["acted_at"]),
+        )
+        for r in conn.execute(sql, params)
+    ]
+
+
+def queue_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute(
+        "SELECT action, reviewed, COUNT(*) AS n FROM pipeline_runs GROUP BY action, reviewed"
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        key = f"{row['action']}{'' if row['reviewed'] else '_pending'}"
+        counts[key] = counts.get(key, 0) + row["n"]
+    return counts

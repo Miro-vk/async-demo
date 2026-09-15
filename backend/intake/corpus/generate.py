@@ -18,6 +18,7 @@ from pathlib import Path
 from random import Random
 
 from intake.corpus import pools
+from intake.domain.normalize import normalize_name
 from intake.domain.enums import (
     ClientType,
     DecisionAction,
@@ -1149,6 +1150,7 @@ def build_emails(
     entries.extend(_ambiguous_emails(rng, clients, matters, attorneys))
 
     rng.shuffle(entries)
+    _mark_incidental_conflicts(entries, clients, matters)
 
     emails: list[Email] = []
     truths: list[GroundTruth] = []
@@ -1188,6 +1190,64 @@ def build_emails(
             )
         )
     return emails, truths
+
+
+def _mark_incidental_conflicts(
+    entries: list[dict], clients: list[ClientRecord], matters: list[MatterRecord]
+) -> None:
+    """Record conflicts the generator created without meaning to.
+
+    Party names for inquiries are drawn from the same pools the client and matter
+    records came from, so collisions happen: an inquiry's opposing party turns out
+    to be an existing client, or its prospective client turns out to be someone the
+    firm once opposed. Those are real conflicts. The firm would want a human on
+    them whether or not anyone planted them, so the expected action is REVIEW.
+
+    Without this, the eval scored the pipeline as over-cautious for catching
+    genuine conflicts, purely because they were accidents of generation.
+
+    Consumes no randomness and changes no email text -- it only corrects the
+    expected action, so cached model responses stay valid.
+
+    Limitation: this uses the same name normalization the matcher uses, so ground
+    truth agrees with the matcher by construction on *how* names are compared.
+    Trap recall, scored against deliberately planted traps, is the independent
+    measure of the rules.
+    """
+    clients_by_name: dict[str, ClientRecord] = {}
+    for client in clients:
+        clients_by_name.setdefault(normalize_name(client.display_name), client)
+
+    adverse_by_name: dict[str, MatterRecord] = {}
+    for matter in matters:
+        for name in matter.adverse_parties:
+            adverse_by_name.setdefault(normalize_name(name), matter)
+
+    for entry in entries:
+        if entry["traps"]:
+            continue  # already expected to reach review
+
+        notes: list[str] = []
+        for opposing in entry["opposing"]:
+            match = clients_by_name.get(normalize_name(opposing))
+            if match:
+                notes.append(
+                    f"Opposing party '{opposing}' is existing client {match.id} "
+                    f"'{match.display_name}' (incidental, not planted)."
+                )
+
+        prospect = entry["prospective_client"]
+        if prospect:
+            match = adverse_by_name.get(normalize_name(prospect))
+            if match:
+                notes.append(
+                    f"Prospective client '{prospect}' is an adverse party on "
+                    f"{match.id} (incidental, not planted)."
+                )
+
+        if notes:
+            entry["expected_action"] = DecisionAction.REVIEW
+            entry["notes"] = " ".join([entry["notes"], *notes]).strip()
 
 
 def generate_corpus(seed: int = DEFAULT_SEED) -> Corpus:

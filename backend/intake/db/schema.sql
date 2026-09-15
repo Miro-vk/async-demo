@@ -73,3 +73,33 @@ CREATE TABLE IF NOT EXISTS ground_truth (
 CREATE INDEX IF NOT EXISTS idx_matters_client   ON matters(client_id);
 CREATE INDEX IF NOT EXISTS idx_matters_status   ON matters(status);
 CREATE INDEX IF NOT EXISTS idx_emails_received  ON emails(received_at);
+
+-- Pipeline output. The whole PipelineResult is stored as JSON: the API serves it
+-- to the UI unchanged, and the trace view wants every field anyway. The cost is
+-- that you cannot query inside a run from SQL -- fine at 51 emails, the first
+-- thing to normalize at 51,000.
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    email_id     TEXT PRIMARY KEY REFERENCES emails(id),
+    processed_at TEXT NOT NULL,
+    action       TEXT NOT NULL,     -- proceed | review | stop
+    reviewed     INTEGER NOT NULL,  -- 1 once a human has acted
+    provider     TEXT NOT NULL,
+    model        TEXT NOT NULL,
+    result_json  TEXT NOT NULL
+);
+
+-- Append-only log of what humans did. Separate from pipeline_runs because a run
+-- gets rewritten when it is re-processed and this must not: "who approved this,
+-- when, and what did they change" has to survive a re-run.
+CREATE TABLE IF NOT EXISTS review_actions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id   TEXT NOT NULL REFERENCES emails(id),
+    outcome    TEXT NOT NULL,
+    reviewer   TEXT NOT NULL,
+    note       TEXT NOT NULL,
+    edits_json TEXT NOT NULL,
+    acted_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_action    ON pipeline_runs(action, reviewed);
+CREATE INDEX IF NOT EXISTS idx_reviews_email  ON review_actions(email_id);

@@ -143,6 +143,12 @@ class FirmRecords:
                 return indexed.record
         return None
 
+    def matter(self, matter_id: str) -> MatterRecord | None:
+        for indexed in self._matters:
+            if indexed.record.id == matter_id:
+                return indexed.record
+        return None
+
     def matters_for_client(self, client_id: str) -> list[MatterRecord]:
         return list(self._matters_by_client.get(client_id, []))
 

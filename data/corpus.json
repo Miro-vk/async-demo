@@ -5101,9 +5101,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Opposing party 'Summit Ridge Systems Ltd.' is existing client cli-0028 'Summit Ridge Systems LLP' (incidental, not planted)."
     },
     {
       "email_id": "em-008",
@@ -5123,9 +5123,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Opposing party 'Juniper Orthopedics PLLC' is existing client cli-0070 'Juniper Orthopedics Corp.' (incidental, not planted)."
     },
     {
       "email_id": "em-009",
@@ -5198,9 +5198,9 @@
       "amounts": [],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": "References open matter mat-0101 for client cli-0165."
+      "notes": "References open matter mat-0101 for client cli-0165. Prospective client 'Terrence Ortega' is an adverse party on mat-0067 (incidental, not planted)."
     },
     {
       "email_id": "em-014",
@@ -5408,9 +5408,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Prospective client 'Talmadge Distribution Ltd.' is an adverse party on mat-0036 (incidental, not planted)."
     },
     {
       "email_id": "em-024",
@@ -5430,9 +5430,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Opposing party 'Ironwood Aggregates PLLC' is existing client cli-0077 'Ironwood Aggregates Ltd.' (incidental, not planted)."
     },
     {
       "email_id": "em-025",
@@ -5452,9 +5452,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Prospective client 'Curtis Amador' is an adverse party on mat-0051 (incidental, not planted)."
     },
     {
       "email_id": "em-026",
@@ -5510,9 +5510,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Opposing party 'Quarry Lane Property Group Ltd.' is existing client cli-0166 'Quarry Lane Property Group PLLC' (incidental, not planted)."
     },
     {
       "email_id": "em-029",
@@ -5626,9 +5626,9 @@
       ],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": ""
+      "notes": "Opposing party 'Marlowe Analytics Corp.' is existing client cli-0120 'Marlowe Analytics LLC' (incidental, not planted). Prospective client 'Talmadge Industries Corp.' is an adverse party on mat-0005 (incidental, not planted)."
     },
     {
       "email_id": "em-035",
@@ -5749,9 +5749,9 @@
       "amounts": [],
       "planted_trap_rules": [],
       "trap_record_ids": [],
-      "expected_action": "proceed",
+      "expected_action": "review",
       "is_ambiguous": false,
-      "notes": "References open matter mat-0001 for client cli-0077."
+      "notes": "References open matter mat-0001 for client cli-0077. Prospective client 'Ironwood Aggregates Ltd.' is an adverse party on mat-0071 (incidental, not planted)."
     },
     {
       "email_id": "em-042",

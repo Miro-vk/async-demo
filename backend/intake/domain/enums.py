@@ -114,6 +114,8 @@ class ReviewReasonCode(str, Enum):
     MISSING_REQUIRED_FIELD = "missing_required_field"
     AMBIGUOUS_MATTER_TYPE = "ambiguous_matter_type"
     CONFLICT_HIT = "conflict_hit"
+    CONFLICT_CHECK_VACUOUS = "conflict_check_vacuous"
+    PARTIAL_PARSE = "partial_parse"
     NO_ATTORNEY_AVAILABLE = "no_attorney_available"
     MODEL_PARSE_FAILURE = "model_parse_failure"
 

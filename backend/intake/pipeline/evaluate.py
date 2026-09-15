@@ -24,7 +24,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from intake.db import repo
-from intake.domain.enums import ConflictSeverity, EmailClass, PartyRole, PracticeArea, SpanStatus
+from intake.domain.enums import (
+    ConflictSeverity,
+    DecisionAction,
+    EmailClass,
+    PartyRole,
+    PracticeArea,
+    SpanStatus,
+)
 from intake.domain.models import (
     Classification,
     Email,
@@ -38,7 +45,7 @@ from intake.domain.records import FirmRecords
 from intake.paths import DATABASE_PATH
 from intake.domain.resolve import resolve
 from intake.llm.client import DEFAULT_MODEL, ResponseCache, build_provider
-from intake.pipeline.runner import run_classify, run_extract
+from intake.pipeline.orchestrator import process_email
 
 # A planted trap describes how the corpus hid a conflict; a rule describes how the
 # system finds one. They are different vocabularies on purpose, and this is the map
@@ -104,6 +111,10 @@ class Report:
     amount_total: int = 0
     span_status: Counter = field(default_factory=Counter)
 
+    decision_agree: int = 0
+    over_abstained: list[str] = field(default_factory=list)
+    under_abstained: list[str] = field(default_factory=list)
+
     traps_total: int = 0
     traps_caught: int = 0
     traps_caught_oracle: int = 0
@@ -124,7 +135,7 @@ def _mean(values: list[float]) -> float:
 
 
 def score_classification(result, gt: GroundTruth, report: Report) -> None:
-    if isinstance(result, ParseFailure):
+    if result is None or isinstance(result, ParseFailure):
         report.classify_failures += 1
         return
     assert isinstance(result, Classification)
@@ -141,7 +152,7 @@ def score_classification(result, gt: GroundTruth, report: Report) -> None:
 
 
 def score_extraction(result, gt: GroundTruth, report: Report) -> None:
-    if isinstance(result, ParseFailure):
+    if result is None or isinstance(result, ParseFailure):
         report.extract_failures += 1
         return
     assert isinstance(result, Extraction)
@@ -190,11 +201,11 @@ def score_extraction(result, gt: GroundTruth, report: Report) -> None:
 
 
 def score_resolution(
-    email: Email, extraction, gt: GroundTruth, records: FirmRecords, report: Report
+    email: Email, resolution, gt: GroundTruth, records: FirmRecords, report: Report
 ) -> None:
-    usable = extraction if isinstance(extraction, Extraction) else None
-    resolution = resolve(email, usable, records)
-    fired = {hit.rule_id for hit in resolution.conflicts}
+    fired = {hit.rule_id for hit in resolution.conflicts} if resolution else set()
+    if resolution is None:
+        return
 
     if resolution.is_vacuous:
         report.vacuous_checks += 1
@@ -227,6 +238,23 @@ def score_resolution(
             report.untrapped_probable += 1
 
 
+def score_decision(result, gt: GroundTruth, report: Report) -> None:
+    """Agreement with the expected action, split by direction.
+
+    The two directions are not equally bad. Asking a human when the corpus says
+    proceed costs someone a minute. Proceeding when the corpus says ask is the
+    failure this system exists to prevent, so it is counted and named separately
+    rather than averaged into one accuracy figure.
+    """
+    action = result.decision.action
+    if action == gt.expected_action:
+        report.decision_agree += 1
+    elif gt.expected_action == DecisionAction.PROCEED:
+        report.over_abstained.append(gt.email_id)
+    else:
+        report.under_abstained.append(gt.email_id)
+
+
 def _all_traced_fields(extraction: Extraction) -> list:
     fields = [extraction.matter_type, extraction.jurisdiction]
     fields += [p.name for p in extraction.parties]
@@ -254,6 +282,7 @@ def evaluate(
     conn = repo.connect(db_path)
     try:
         records = FirmRecords(repo.list_clients(conn), repo.list_matters(conn))
+        attorneys = repo.list_attorneys(conn)
     finally:
         conn.close()
 
@@ -265,10 +294,13 @@ def evaluate(
         report.total += 1
         if gt.is_ambiguous:
             report.ambiguous_ids.append(email.id)
-        score_classification(run_classify(email, provider).output, gt, report)
-        extraction = run_extract(email, provider).output
-        score_extraction(extraction, gt, report)
-        score_resolution(email, extraction, gt, records, report)
+        # The eval runs the same code path the demo does, end to end, rather
+        # than re-deriving stages -- otherwise it measures something nobody ships.
+        result = process_email(email, provider, records, attorneys)
+        score_classification(result.classification, gt, report)
+        score_extraction(result.extraction, gt, report)
+        score_resolution(email, result.resolution, gt, records, report)
+        score_decision(result, gt, report)
 
     return report
 
@@ -333,6 +365,16 @@ def print_report(report: Report) -> None:
     ungrounded = report.span_status.get("not_found", 0)
     if ungrounded:
         print(f"    {ungrounded} value(s) quoted text that is not in the email.")
+
+    print("\nDECIDE   (abstention policy)")
+    print(f"  agrees with expected action  {_pct(report.decision_agree, report.total)}"
+          f"  ({report.decision_agree}/{report.total})")
+    print(f"  asked when it could have acted  {len(report.over_abstained):>2}"
+          f"   {', '.join(report.over_abstained) or '-'}")
+    print(f"  ACTED WHEN IT SHOULD HAVE ASKED {len(report.under_abstained):>2}"
+          f"   {', '.join(report.under_abstained) or '-'}")
+    if not report.under_abstained:
+        print("    (the direction that matters: nothing slipped past the queue)")
 
     print("\nRESOLVE  (deterministic rules, no model)")
     print(f"  conflict traps caught     {_pct(report.traps_caught, report.traps_total)}"

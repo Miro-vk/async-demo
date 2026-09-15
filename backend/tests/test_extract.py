@@ -103,11 +103,44 @@ def test_a_null_field_is_low_confidence_not_an_error(email) -> None:
     assert result.jurisdiction.confidence < 0.5
 
 
-def test_a_bare_scalar_field_is_accepted_without_a_quote(email) -> None:
+def test_a_bare_scalar_field_is_accepted_and_grounded_from_its_value(email) -> None:
+    """When the model gives a value but no quote, the system looks for the value
+    itself. The characters really are in the email, so throwing that evidence away
+    would be wasteful -- but the span is marked derived and scores below a quote
+    the model actually produced."""
     result = parse_extraction(email, json.dumps({"jurisdiction": "King County, Washington"}))
     assert result.jurisdiction.value == "King County, Washington"
+    assert result.jurisdiction.span is not None
+    assert result.jurisdiction.span.derived is True
+    assert result.jurisdiction.span.located
+    text = email.searchable_text
+    assert text[result.jurisdiction.span.start : result.jurisdiction.span.end] == (
+        "King County, Washington"
+    )
+
+
+def test_a_value_that_is_not_in_the_email_does_not_ground(email) -> None:
+    result = parse_extraction(email, json.dumps({"jurisdiction": "Cook County, Illinois"}))
+    assert result.jurisdiction.value == "Cook County, Illinois"
     assert result.jurisdiction.span is None
-    assert result.jurisdiction.confidence < 0.7, "no quote means no full credit"
+    assert result.jurisdiction.confidence < 0.6
+
+
+def test_a_supplied_quote_that_is_missing_is_never_backfilled(email) -> None:
+    """The one case backfill must not touch. A model that cited text which does
+    not exist has done the thing this mechanism exists to catch; quietly finding
+    the value elsewhere would hide it."""
+    payload = {
+        "jurisdiction": {
+            "value": "King County, Washington",
+            "confidence": 0.95,
+            "quote": "venue is agreed to be King County",
+        }
+    }
+    result = parse_extraction(email, json.dumps(payload))
+    assert result.jurisdiction.span.status == SpanStatus.NOT_FOUND
+    assert result.jurisdiction.span.derived is False
+    assert result.jurisdiction.confidence <= 0.4
 
 
 # --------------------------------------------------------------------------- #

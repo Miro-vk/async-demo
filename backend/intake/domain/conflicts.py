@@ -35,6 +35,13 @@ RULE_SENDER_DOMAIN_MATCHES_CLIENT = "SENDER_DOMAIN_MATCHES_CLIENT"
 # a human's time rather than a finding.
 STRONG_METHODS = {MatchMethod.EXACT, MatchMethod.NORMALIZED}
 
+# Which party roles the rules below actually look up. A third party mentioned in
+# passing drives nothing here, so policy must not hold its extraction confidence
+# to the bar it applies to names that do. Exported so the two modules cannot drift.
+CLIENT_SIDE_ROLES = {PartyRole.PROSPECTIVE_CLIENT, PartyRole.UNKNOWN}
+OPPOSING_ROLES = {PartyRole.OPPOSING}
+CONFLICT_RELEVANT_ROLES = CLIENT_SIDE_ROLES | OPPOSING_ROLES
+
 
 def describe_match(method: MatchMethod, inquiry_name: str, record_name: str) -> str:
     """How the two names matched, in words a reviewer can check in one read."""
@@ -62,11 +69,10 @@ class ConflictContext:
 def _client_side_names(extraction: Extraction | None) -> list[str]:
     if extraction is None:
         return []
-    roles = {PartyRole.PROSPECTIVE_CLIENT, PartyRole.UNKNOWN}
     return [
         p.name.value
         for p in extraction.parties
-        if p.role in roles and p.name.value
+        if p.role in CLIENT_SIDE_ROLES and p.name.value
     ]
 
 

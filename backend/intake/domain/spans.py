@@ -107,3 +107,25 @@ def excerpt(source: str, span: Span | None, padding: int = 60) -> str:
     prefix = "..." if start > 0 else ""
     suffix = "..." if end < len(source) else ""
     return f"{prefix}{source[start:end]}{suffix}"
+
+
+def ground_value(source: str, quote: str | None, value: object) -> Span | None:
+    """Ground a field, falling back to the extracted value when no quote is given.
+
+    A model that returns `"jurisdiction": "Cook County, Illinois"` without a quote
+    has still named something that is verbatim in the email, and refusing to look
+    for it throws away evidence that is sitting right there.
+
+    The fallback applies ONLY when no quote was supplied. A quote that was supplied
+    and could not be found stays NOT_FOUND -- backfilling there would paper over a
+    fabricated citation, which is the one thing this whole mechanism exists to
+    catch.
+    """
+    span = ground_quote(source, quote)
+    if span is not None:
+        return span
+    if isinstance(value, str) and value.strip():
+        fallback = ground_quote(source, value)
+        if fallback is not None and fallback.located:
+            return fallback.model_copy(update={"derived": True})
+    return None

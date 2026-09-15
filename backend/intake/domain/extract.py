@@ -182,7 +182,7 @@ def _parse_matter_type(source: str, raw: Any) -> TracedField[PracticeArea]:
     else:
         validator, note = ValidatorStatus.PASSED, None
 
-    span = spans.ground_quote(source, quote)
+    span = spans.ground_value(source, quote, text)
     return TracedField[PracticeArea](
         value=area,
         self_reported=self_reported,
@@ -197,7 +197,7 @@ def _parse_jurisdiction(source: str, raw: Any) -> TracedField[str]:
     value, self_reported, quote = _field_parts(raw)
     text = as_str(value)
     validator, note = validators.validate_jurisdiction(text)
-    span = spans.ground_quote(source, quote)
+    span = spans.ground_value(source, quote, text)
     return TracedField[str](
         value=text,
         self_reported=self_reported,
@@ -227,7 +227,7 @@ def _parse_parties(source: str, raw: Any, warnings: list[str]) -> list[Party]:
 
         validator, note = validators.validate_party_name(name)
         self_reported = as_float(entry.get("confidence"))
-        span = spans.ground_quote(source, as_str(entry.get("quote")))
+        span = spans.ground_value(source, as_str(entry.get("quote")), name)
         role = ROLE_ALIASES.get(str(entry.get("role", "")).strip().lower(), PartyRole.UNKNOWN)
         if entry.get("role") is not None and role == PartyRole.UNKNOWN:
             warnings.append(f"party[{index}] had unrecognised role {entry.get('role')!r}")
@@ -266,11 +266,13 @@ def _parse_key_dates(
         if not isinstance(entry, dict):
             warnings.append(f"key_dates[{index}] was not an object; dropped")
             continue
-        parsed = parse_date_value(entry.get("value"))
+        raw_value = entry.get("value")
+        parsed = parse_date_value(raw_value)
         if parsed is None:
-            warnings.append(
-                f"key_dates[{index}] value {entry.get('value')!r} is not a date; dropped"
-            )
+            if raw_value is not None:
+                warnings.append(
+                    f"key_dates[{index}] value {raw_value!r} is not a date; dropped"
+                )
             continue
 
         validator, note = validators.validate_date(parsed, reference)
@@ -306,11 +308,13 @@ def _parse_amounts(source: str, raw: Any, warnings: list[str]) -> list[MonetaryA
         if not isinstance(entry, dict):
             warnings.append(f"amounts[{index}] was not an object; dropped")
             continue
-        parsed = parse_amount_value(entry.get("value"))
+        raw_value = entry.get("value")
+        parsed = parse_amount_value(raw_value)
         if parsed is None:
-            warnings.append(
-                f"amounts[{index}] value {entry.get('value')!r} is not a number; dropped"
-            )
+            if raw_value is not None:
+                warnings.append(
+                    f"amounts[{index}] value {raw_value!r} is not a number; dropped"
+                )
             continue
 
         validator, note = validators.validate_amount(parsed)

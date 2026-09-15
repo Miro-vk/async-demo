@@ -55,3 +55,86 @@ def test_reseeding_is_idempotent(tmp_path) -> None:
         assert len(repo.list_clients(conn)) == len(corpus.clients)
     finally:
         conn.close()
+
+
+# --------------------------------------------------------------------------- #
+# Pipeline runs and the review audit log
+# --------------------------------------------------------------------------- #
+
+
+def _sample_result(email_id="em-001", action=None):
+    from intake.domain.enums import DecisionAction, ReviewReasonCode
+    from intake.domain.models import Decision, PipelineResult, Reason, StageTrace
+
+    return PipelineResult(
+        email_id=email_id,
+        decision=Decision(
+            action=action or DecisionAction.REVIEW,
+            reasons=[Reason(code=ReviewReasonCode.CONFLICT_HIT, message="they are our client",
+                            rule_id="ADVERSE_PARTY_IS_CLIENT")],
+        ),
+        traces=[StageTrace(email_id=email_id, stage="classify", provider="replay", model="m")],
+    )
+
+
+def test_a_run_round_trips(seeded) -> None:
+    from datetime import datetime
+
+    _, conn = seeded
+    result = _sample_result()
+    repo.save_run(conn, result, datetime(2026, 3, 2, 10, 0))
+    assert repo.get_run(conn, "em-001") == result
+
+
+def test_reprocessing_replaces_the_run(seeded) -> None:
+    from datetime import datetime
+
+    from intake.domain.enums import DecisionAction
+
+    _, conn = seeded
+    repo.save_run(conn, _sample_result(action=DecisionAction.REVIEW), datetime(2026, 3, 2, 10, 0))
+    repo.save_run(conn, _sample_result(action=DecisionAction.PROCEED), datetime(2026, 3, 2, 11, 0))
+    assert repo.get_run(conn, "em-001").decision.action == DecisionAction.PROCEED
+    assert len(repo.list_runs(conn)) == 1
+
+
+def test_the_review_log_is_append_only(seeded) -> None:
+    """A run is rewritten when an email is re-processed. Who approved what, and
+    what they changed, must survive that."""
+    from datetime import datetime
+
+    from intake.domain.enums import ReviewOutcome
+    from intake.domain.models import FieldEdit, ReviewAction
+
+    _, conn = seeded
+    for outcome in (ReviewOutcome.REJECTED, ReviewOutcome.APPROVED_WITH_EDITS):
+        repo.record_review(
+            conn,
+            ReviewAction(
+                email_id="em-002", outcome=outcome, reviewer="dana@firm.example",
+                note="second look",
+                edits=[FieldEdit(field_path="extraction.jurisdiction", original_value="Wakanda",
+                                 corrected_value="Cook County, Illinois",
+                                 edited_by="dana@firm.example",
+                                 edited_at=datetime(2026, 3, 2, 11, 0))],
+                acted_at=datetime(2026, 3, 2, 11, 0),
+            ),
+        )
+    log = repo.list_review_actions(conn, "em-002")
+    assert len(log) == 2, "recording a second review must not overwrite the first"
+    assert log[0].outcome == ReviewOutcome.REJECTED
+    assert log[1].edits[0].original_value == "Wakanda"
+
+
+def test_the_queue_can_be_filtered_to_pending_review(seeded) -> None:
+    from datetime import datetime
+
+    from intake.domain.enums import DecisionAction
+
+    _, conn = seeded
+    conn.execute("DELETE FROM pipeline_runs")
+    repo.save_run(conn, _sample_result("em-001", DecisionAction.REVIEW), datetime(2026, 3, 2, 10, 0))
+    repo.save_run(conn, _sample_result("em-002", DecisionAction.PROCEED), datetime(2026, 3, 2, 10, 0))
+    pending = repo.list_runs(conn, action=DecisionAction.REVIEW, pending_only=True)
+    assert [r.email_id for r in pending] == ["em-001"]
+    assert repo.queue_counts(conn)["review_pending"] == 1

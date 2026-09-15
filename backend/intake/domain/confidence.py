@@ -48,6 +48,11 @@ UNGROUNDED_CEILING = 0.40
 # grounds without really being evidence.
 WEAK_SPAN_PENALTY = 0.85
 
+# The system found the value in the source itself because the model offered no
+# quote. The characters are genuinely there, so this beats no evidence at all --
+# but the model never showed it was reading them, so it trails a real citation.
+DERIVED_SPAN_FACTOR = 0.85
+
 
 def score(
     self_reported: float | None,
@@ -59,7 +64,12 @@ def score(
     base = DEFAULT_SELF_REPORT if self_reported is None else _clamp(self_reported)
     span_status = span.status if span is not None else SpanStatus.ABSENT
 
-    result = base * SPAN_FACTOR[span_status] * VALIDATOR_FACTOR[validator]
+    span_factor = (
+        DERIVED_SPAN_FACTOR
+        if span is not None and span.derived
+        else SPAN_FACTOR[span_status]
+    )
+    result = base * span_factor * VALIDATOR_FACTOR[validator]
     if weak_span:
         result *= WEAK_SPAN_PENALTY
     if span_status == SpanStatus.NOT_FOUND:
@@ -78,7 +88,11 @@ def explain(
     span_status = span.status if span is not None else SpanStatus.ABSENT
     parts = [
         f"self-reported {base:.2f}",
-        f"span {span_status.value} x{SPAN_FACTOR[span_status]:.2f}",
+        (
+            f"span derived x{DERIVED_SPAN_FACTOR:.2f}"
+            if span is not None and span.derived
+            else f"span {span_status.value} x{SPAN_FACTOR[span_status]:.2f}"
+        ),
         f"validator {validator.value} x{VALIDATOR_FACTOR[validator]:.2f}",
     ]
     if weak_span:

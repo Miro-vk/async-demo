@@ -62,6 +62,12 @@ class Span(Frozen):
     span is located but not unique -- we show the first, and the reviewer should
     know there were others."""
 
+    derived: bool = False
+    """True when the model supplied no quote and the system located the extracted
+    value itself in the source text. The evidence is real -- those characters are
+    in the email -- but the model never demonstrated it was reading them, so this
+    scores below a quote the model actually produced."""
+
     @property
     def located(self) -> bool:
         return self.status in (SpanStatus.VERIFIED, SpanStatus.NORMALIZED)
@@ -406,6 +412,41 @@ class StageTrace(Frozen):
     raw_response: str = ""
     ok: bool = True
     failure_reason: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# A whole email, all four stages
+# --------------------------------------------------------------------------- #
+
+
+class PipelineResult(Frozen):
+    """Everything the system concluded about one email, and how.
+
+    Stage outputs are optional because a stage can fail without taking the run
+    with it: a classification that could not be parsed still produces a Decision
+    (review, citing the failure), and the trace still records what the model
+    actually said. Storing the failures alongside the successes is what lets the
+    UI show four stages with one of them red, rather than an empty page.
+    """
+
+    email_id: str
+    classification: Classification | None = None
+    extraction: Extraction | None = None
+    resolution: Resolution | None = None
+    dispatch: Dispatch | None = None
+    decision: Decision
+    traces: list[StageTrace] = []
+    failures: list[ParseFailure] = []
+    review: ReviewAction | None = None
+
+    @property
+    def awaiting_review(self) -> bool:
+        return self.decision.action == DecisionAction.REVIEW and self.review is None
+
+    @property
+    def used_a_model(self) -> bool:
+        """False when every stage was deterministic -- worth showing in the trace."""
+        return any(t.provider not in ("deterministic",) for t in self.traces)
 
 
 # --------------------------------------------------------------------------- #
