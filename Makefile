@@ -5,7 +5,7 @@ export PYTHONPATH := backend
 
 PROVIDER ?= auto
 
-.PHONY: setup seed process test eval cache naturalize clean
+.PHONY: setup seed process api test eval cache naturalize clean
 
 setup:  ## create the virtualenv and install dependencies
 	python3 -m venv $(VENV)
@@ -17,6 +17,9 @@ seed:  ## regenerate the corpus and rebuild the demo database
 
 process:  ## run the inbox through all four stages and store the results
 	$(PY) -m intake.pipeline.process --db data/intake.sqlite3 --quiet
+
+api:  ## serve the API on :8000
+	$(VENV)/bin/uvicorn intake.api.main:app --reload --port 8000
 
 test:  ## run the unit tests (no API key, no network, no database required)
 	$(PY) -m pytest backend/tests -q
