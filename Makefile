@@ -19,7 +19,7 @@ process:  ## run the inbox through all four stages and store the results
 	$(PY) -m intake.pipeline.process --db data/intake.sqlite3 --quiet
 
 demo:  ## build and run the whole thing in one container on :8000
-	docker compose up --build
+	docker compose up --build --force-recreate
 
 api:  ## serve the API on :8000
 	$(VENV)/bin/uvicorn intake.api.main:app --reload --port 8000

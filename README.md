@@ -180,13 +180,20 @@ check — and it would be dishonest to present the mechanism as battle-tested he
 ## Running it
 
 ```bash
-docker compose up               # everything, on :8000
+docker compose up --build       # everything, on :8000
 ```
+
+Pass `--build` after pulling changes. The corpus is generated and the inbox is
+processed *during the image build*, so decisions — including the wording of every
+review reason — are baked into the database inside the image. Without `--build`,
+compose reuses the old image and its old decisions, and a code change looks like
+it did not take. The build fingerprint in the startup banner tells you which is
+which.
 
 It prints what it is holding when it starts:
 
 ```
-  Client intake triage  ·  http://localhost:8000
+  Client intake triage  ·  http://localhost:8000  ·  build 4f2a9c1d8e03
 
   51 emails from seed 20260517, already processed.
   26 waiting in the review queue.

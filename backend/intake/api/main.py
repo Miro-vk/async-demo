@@ -29,7 +29,7 @@ from intake.domain.enums import DecisionAction, ReviewOutcome
 from intake.domain.models import FieldEdit, PipelineResult, ReviewAction
 from intake.domain.policy import DEFAULT as DEFAULT_THRESHOLDS
 from intake.domain.review import UneditableField, apply_review
-from intake.paths import DATABASE_PATH, FRONTEND_DIST
+from intake.paths import DATABASE_PATH, FRONTEND_DIST, REPO_ROOT
 
 # The demo has no auth and no users. Actions are attributed to a single reviewer so
 # the audit trail has a name in it; a real system would take this from a session.
@@ -51,10 +51,19 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+def build_id() -> str:
+    """Fingerprint of the image's contents, written at build time."""
+    stamp = REPO_ROOT / "BUILD_ID"
+    try:
+        return stamp.read_text(encoding="utf-8").strip() or "unstamped"
+    except OSError:
+        return "source checkout"
+
+
 def _startup_banner() -> str:
     lines = [
         "",
-        "  Client intake triage  ·  http://localhost:8000",
+        f"  Client intake triage  ·  http://localhost:8000  ·  build {build_id()}",
         "",
     ]
     try:
@@ -190,6 +199,7 @@ class ThresholdsResponse(BaseModel):
 def health(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
     return {
         "ok": True,
+        "build": build_id(),
         "emails": len(repo.list_emails(conn)),
         "runs": len(repo.list_runs(conn)),
         "corpus_seed": repo.get_meta(conn, "corpus_seed"),
