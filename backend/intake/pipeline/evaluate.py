@@ -93,6 +93,7 @@ class Report:
     extract_failures: int = 0
     area_correct: int = 0
     area_total: int = 0
+    area_not_scored: int = 0
     juris_correct: int = 0
     juris_total: int = 0
     party_found: int = 0
@@ -150,9 +151,21 @@ def score_extraction(result, gt: GroundTruth, report: Report) -> None:
             field_.span.status.value if field_.span else SpanStatus.ABSENT.value
         ] += 1
 
-    if gt.practice_area and gt.practice_area != PracticeArea.UNKNOWN:
+    # Practice area is only scored on new-matter inquiries. For existing-client
+    # mail -- a billing question, a scheduling chase -- the area is a property of
+    # the matter being referenced, not something stated in the email, and the
+    # extractor cannot read it off the text. Scoring it there marked the model
+    # wrong for correctly answering "unknown" at low confidence. Resolve supplies
+    # the area for those emails by matching the matter.
+    if (
+        gt.label == EmailClass.NEW_MATTER
+        and gt.practice_area
+        and gt.practice_area != PracticeArea.UNKNOWN
+    ):
         report.area_total += 1
         report.area_correct += int(result.matter_type.value == gt.practice_area)
+    elif gt.practice_area and gt.practice_area != PracticeArea.UNKNOWN:
+        report.area_not_scored += 1
 
     if gt.jurisdiction:
         report.juris_total += 1
@@ -300,7 +313,9 @@ def print_report(report: Report) -> None:
     print("\nEXTRACT")
     print(f"  unparseable       {report.extract_failures}")
     print(f"  practice area     {_pct(report.area_correct, report.area_total)}"
-          f"  ({report.area_correct}/{report.area_total})")
+          f"  ({report.area_correct}/{report.area_total} new-matter inquiries;"
+          f" {report.area_not_scored} existing-client emails not scored --"
+          f" area comes from the matched matter, not the text)")
     print(f"  jurisdiction      {_pct(report.juris_correct, report.juris_total)}"
           f"  ({report.juris_correct}/{report.juris_total})")
     print(f"  party recall      {_pct(report.party_found, report.party_total)}"
