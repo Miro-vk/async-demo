@@ -29,8 +29,11 @@ class PromptSpec:
     stage: str
     system: str
     user: str
-    max_tokens: int = 2000
-    temperature: float = 0.0
+    max_tokens: int = 8000
+    effort: str = "medium"
+    """Thinking depth. `temperature` is deliberately absent: sampling parameters
+    were removed on current models and sending one returns a 400. Reproducibility
+    here comes from the response cache, not from pinning temperature to zero."""
     source_text: str = ""
     email_id: str | None = None
     metadata: dict = field(default_factory=dict)
@@ -126,7 +129,8 @@ def build_classification_request(email: Email) -> PromptSpec:
         stage="classify",
         system=CLASSIFY_SYSTEM,
         user=f"Classify this email.\n\n---\n{_email_block(email)}\n---",
-        max_tokens=600,
+        max_tokens=2000,
+        effort="low",
         source_text=email.searchable_text,
         email_id=email.id,
     )
@@ -137,7 +141,8 @@ def build_extraction_request(email: Email) -> PromptSpec:
         stage="extract",
         system=EXTRACT_SYSTEM,
         user=f"Extract the facts from this email.\n\n---\n{_email_block(email)}\n---",
-        max_tokens=2000,
+        max_tokens=8000,
+        effort="medium",
         source_text=email.searchable_text,
         email_id=email.id,
     )

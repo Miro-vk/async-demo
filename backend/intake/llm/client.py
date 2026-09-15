@@ -122,8 +122,8 @@ class AnthropicProvider:
         message = client.messages.create(
             model=self.model,
             max_tokens=spec.max_tokens,
-            temperature=spec.temperature,
             system=spec.system,
+            output_config={"effort": spec.effort},
             messages=[{"role": "user", "content": spec.user}],
         )
         elapsed = int((time.monotonic() - started) * 1000)
