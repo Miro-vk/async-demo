@@ -13,6 +13,7 @@ string the offsets were computed from.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -37,10 +38,54 @@ DEMO_REVIEWER = "intake@vancebrock.example"
 # Fixed so repeated demo runs produce identical audit rows.
 REVIEW_CLOCK = datetime(2026, 3, 2, 12, 0, 0)
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Say what is running and what state it is in.
+
+    `docker compose up` otherwise prints "Attaching to intake-1" and then nothing,
+    because uvicorn's own lines are quiet and the demo does its work at build
+    time. A container that prints nothing looks like a container that has hung,
+    and that is the first thing anyone sees of this project.
+    """
+    print(_startup_banner(), flush=True)
+    yield
+
+
+def _startup_banner() -> str:
+    lines = [
+        "",
+        "  Client intake triage  ·  http://localhost:8000",
+        "",
+    ]
+    try:
+        conn = repo.connect(DATABASE_PATH)
+        try:
+            counts = repo.queue_counts(conn)
+            pending = counts.get("review_pending", 0)
+            emails = len(repo.list_emails(conn))
+            seed = repo.get_meta(conn, "corpus_seed")
+            lines += [
+                f"  {emails} emails from seed {seed}, already processed.",
+                f"  {pending} waiting in the review queue.",
+            ]
+        finally:
+            conn.close()
+    except Exception as exc:  # a banner must never stop the server starting
+        lines.append(f"  (could not read the database: {exc})")
+
+    lines += [
+        "",
+        "  Synthetic data. Nothing here is ever sent to anyone.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 app = FastAPI(
     title="Client intake triage",
     description="Synthetic demo. No real email, no auth, nothing is ever sent.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

@@ -183,6 +183,23 @@ check — and it would be dishonest to present the mechanism as battle-tested he
 docker compose up               # everything, on :8000
 ```
 
+It prints what it is holding when it starts:
+
+```
+  Client intake triage  ·  http://localhost:8000
+
+  51 emails from seed 20260517, already processed.
+  26 waiting in the review queue.
+
+  Synthetic data. Nothing here is ever sent to anyone.
+```
+
+If you see `Container ... Running` followed by silence, the container was already
+up and compose is attaching to a log stream with nothing new in it — the banner
+was printed the first time. `docker compose logs` shows it, and the app is fine.
+In a Codespace or a dev container, open port 8000 from the **Ports** panel rather
+than expecting a browser to open by itself.
+
 Or locally:
 
 ```bash
