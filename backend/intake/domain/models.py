@@ -12,7 +12,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from intake.domain import confidence as _confidence
 
 from intake.domain.enums import (
     ClientType,
@@ -93,6 +95,23 @@ class TracedField(Frozen, Generic[T]):
     @property
     def is_present(self) -> bool:
         return self.value is not None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def explanation(self) -> str:
+        """The arithmetic behind `confidence`, as one readable line.
+
+        Served rather than recomputed in the front end: the factors live in
+        domain.confidence, and a TypeScript copy of them would drift the first
+        time somebody tuned one. A reviewer sees
+        "self-reported 0.95 | span not_found x0.30 | ... = 0.28" instead of a bare
+        number, which is the difference between a score and an explanation.
+        """
+        from intake.domain.spans import is_weak
+
+        return _confidence.explain(
+            self.self_reported, self.span, self.validator, is_weak(self.span)
+        )
 
 
 # --------------------------------------------------------------------------- #

@@ -5,7 +5,7 @@ export PYTHONPATH := backend
 
 PROVIDER ?= auto
 
-.PHONY: setup seed process api test eval cache naturalize clean
+.PHONY: setup seed process api ui test test-ui eval cache naturalize clean
 
 setup:  ## create the virtualenv and install dependencies
 	python3 -m venv $(VENV)
@@ -21,6 +21,12 @@ process:  ## run the inbox through all four stages and store the results
 api:  ## serve the API on :8000
 	$(VENV)/bin/uvicorn intake.api.main:app --reload --port 8000
 
+ui:  ## serve the front end on :5173 (needs `make api` in another shell)
+	cd frontend && npm install && npm run dev
+
+test-ui:  ## typecheck and unit-test the front end
+	cd frontend && npx tsc -b --noEmit && npm test
+
 test:  ## run the unit tests (no API key, no network, no database required)
 	$(PY) -m pytest backend/tests -q
 
@@ -35,5 +41,5 @@ naturalize:  ## refresh the cached prose rewrites (requires ANTHROPIC_API_KEY)
 	$(PY) -m intake.corpus.naturalize
 
 clean:
-	rm -rf data/intake.sqlite3 .pytest_cache
+	rm -rf data/intake.sqlite3 .pytest_cache frontend/dist
 	find backend -name __pycache__ -type d -exec rm -rf {} +

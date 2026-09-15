@@ -22,8 +22,12 @@ domain.policy. They are deliberately in one place.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from intake.domain.enums import SpanStatus, ValidatorStatus
-from intake.domain.models import Span
+
+if TYPE_CHECKING:  # import cycle: models imports this module for its computed field
+    from intake.domain.models import Span
 
 DEFAULT_SELF_REPORT = 0.5
 
@@ -56,7 +60,7 @@ DERIVED_SPAN_FACTOR = 0.85
 
 def score(
     self_reported: float | None,
-    span: Span | None,
+    span: "Span | None",
     validator: ValidatorStatus = ValidatorStatus.NOT_APPLICABLE,
     weak_span: bool = False,
 ) -> float:
@@ -79,7 +83,7 @@ def score(
 
 def explain(
     self_reported: float | None,
-    span: Span | None,
+    span: "Span | None",
     validator: ValidatorStatus = ValidatorStatus.NOT_APPLICABLE,
     weak_span: bool = False,
 ) -> str:
