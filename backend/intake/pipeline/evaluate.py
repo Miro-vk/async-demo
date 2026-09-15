@@ -37,7 +37,7 @@ from intake.domain.models import (
 from intake.domain.records import FirmRecords
 from intake.paths import DATABASE_PATH
 from intake.domain.resolve import resolve
-from intake.llm.client import build_provider
+from intake.llm.client import DEFAULT_MODEL, ResponseCache, build_provider
 from intake.pipeline.runner import run_classify, run_extract
 
 # A planted trap describes how the corpus hid a conflict; a rule describes how the
@@ -222,7 +222,12 @@ def _all_traced_fields(extraction: Extraction) -> list:
     return [f for f in fields if f.value is not None]
 
 
-def evaluate(db_path: Path, provider_mode: str, limit: int | None = None) -> Report:
+def evaluate(
+    db_path: Path,
+    provider_mode: str,
+    limit: int | None = None,
+    model: str = DEFAULT_MODEL,
+) -> Report:
     conn = repo.connect(db_path)
     try:
         emails = repo.list_emails(conn)
@@ -239,7 +244,7 @@ def evaluate(db_path: Path, provider_mode: str, limit: int | None = None) -> Rep
     finally:
         conn.close()
 
-    provider = build_provider(provider_mode)
+    provider = build_provider(provider_mode, model=model)
     report = Report(provider=getattr(provider, "name", provider_mode))
 
     for email in emails:
@@ -341,9 +346,16 @@ def main() -> None:
     parser.add_argument("--db", type=Path, default=DATABASE_PATH)
     parser.add_argument("--provider", default="auto",
                         choices=["auto", "live", "replay", "stub"])
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
-    print_report(evaluate(args.db, args.provider, args.limit))
+    print_report(evaluate(args.db, args.provider, args.limit, args.model))
+
+    if args.provider in ("live", "auto"):
+        cached = ResponseCache()
+        if len(cached):
+            print(f"Response cache: {len(cached)} entries at {cached.path}")
+            print("Commit it so the demo replays offline and CI stays hermetic.\n")
 
 
 if __name__ == "__main__":
