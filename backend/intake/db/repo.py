@@ -55,12 +55,38 @@ def _j(value) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Child-to-parent order: pipeline_runs and review_actions both reference emails,
+# so re-seeding has to clear them first or the foreign key rejects the delete.
+# Their contents describe the corpus being replaced, so keeping them would be
+# wrong anyway -- a run that points at an email that no longer exists is worse
+# than no run.
+_WIPE_ORDER = (
+    "review_actions",
+    "pipeline_runs",
+    "ground_truth",
+    "matters",
+    "emails",
+    "clients",
+    "attorneys",
+    "schema_meta",
+)
+
+
 def insert_corpus(conn: sqlite3.Connection, corpus: Corpus) -> None:
-    """Replace the corpus tables wholesale. Idempotent for a given seed."""
-    conn.executescript(
-        "DELETE FROM ground_truth; DELETE FROM emails; DELETE FROM matters; "
-        "DELETE FROM clients; DELETE FROM attorneys; DELETE FROM schema_meta;"
-    )
+    """Replace the corpus wholesale. Idempotent for a given seed, and atomic.
+
+    `with conn` makes the whole replacement one transaction. The earlier version
+    used executescript, which commits as it goes: a foreign key rejection partway
+    through left the database with its emails intact and its ground truth gone,
+    which is a far worse outcome than refusing to start.
+    """
+    with conn:
+        for table in _WIPE_ORDER:
+            conn.execute(f"DELETE FROM {table}")
+        _insert_all(conn, corpus)
+
+
+def _insert_all(conn: sqlite3.Connection, corpus: Corpus) -> None:
     conn.executemany(
         "INSERT INTO attorneys VALUES (?,?,?,?,?,?)",
         [
@@ -109,7 +135,6 @@ def insert_corpus(conn: sqlite3.Connection, corpus: Corpus) -> None:
         "INSERT INTO schema_meta VALUES (?,?)",
         [("corpus_seed", str(corpus.seed)), ("email_count", str(len(corpus.emails)))],
     )
-    conn.commit()
 
 
 # --------------------------------------------------------------------------- #

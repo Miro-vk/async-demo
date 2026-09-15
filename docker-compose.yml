@@ -1,0 +1,11 @@
+# `docker compose up`, then open http://localhost:8000
+#
+# No API key, no network, no external services. The corpus is generated and the
+# inbox is processed during the image build, replaying the cached model responses
+# in data/ -- so the container starts with the real pipeline output already in
+# place, identical on every build.
+services:
+  intake:
+    build: .
+    ports:
+      - "8000:8000"

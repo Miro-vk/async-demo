@@ -138,3 +138,57 @@ def test_the_queue_can_be_filtered_to_pending_review(seeded) -> None:
     pending = repo.list_runs(conn, action=DecisionAction.REVIEW, pending_only=True)
     assert [r.email_id for r in pending] == ["em-001"]
     assert repo.queue_counts(conn)["review_pending"] == 1
+
+
+def test_reseeding_after_processing_works(tmp_path) -> None:
+    """A regression guard on a bug that corrupted the database.
+
+    pipeline_runs holds a foreign key to emails, so wiping the corpus after the
+    inbox had been processed was rejected -- and because the wipe ran as a script
+    rather than a transaction, it deleted ground_truth first and only then hit the
+    constraint. The result was a database with its emails intact and its ground
+    truth gone, which every downstream tool read as a corpus with no answers.
+    """
+    from intake.domain.enums import DecisionAction
+    from intake.pipeline.process import process_inbox
+
+    db_path = tmp_path / "intake.sqlite3"
+    seed_database(generate_corpus(20260517), db_path)
+    process_inbox(db_path, provider_mode="stub", verbose=False)
+
+    conn = repo.connect(db_path)
+    try:
+        assert len(repo.list_runs(conn)) == 51
+    finally:
+        conn.close()
+
+    seed_database(generate_corpus(20260517), db_path)
+
+    conn = repo.connect(db_path)
+    try:
+        assert len(repo.list_ground_truth(conn)) == 51, "ground truth must survive a re-seed"
+        assert len(repo.list_emails(conn)) == 51
+        assert repo.list_runs(conn) == [], "runs describing the old corpus must go"
+    finally:
+        conn.close()
+
+
+def test_a_failed_seed_leaves_the_database_untouched(tmp_path, monkeypatch) -> None:
+    """All or nothing. A half-applied seed is worse than a refused one."""
+    db_path = tmp_path / "intake.sqlite3"
+    corpus = generate_corpus(20260517)
+    seed_database(corpus, db_path)
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("boom, midway through")
+
+    monkeypatch.setattr(repo, "_insert_all", explode)
+
+    conn = repo.connect(db_path)
+    try:
+        with pytest.raises(RuntimeError):
+            repo.insert_corpus(conn, corpus)
+        assert len(repo.list_emails(conn)) == 51
+        assert len(repo.list_ground_truth(conn)) == 51
+    finally:
+        conn.close()

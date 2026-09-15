@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from intake.db import repo
@@ -25,7 +28,7 @@ from intake.domain.enums import DecisionAction, ReviewOutcome
 from intake.domain.models import FieldEdit, PipelineResult, ReviewAction
 from intake.domain.policy import DEFAULT as DEFAULT_THRESHOLDS
 from intake.domain.review import UneditableField, apply_review
-from intake.paths import DATABASE_PATH
+from intake.paths import DATABASE_PATH, FRONTEND_DIST
 
 # The demo has no auth and no users. Actions are attributed to a single reviewer so
 # the audit trail has a name in it; a real system would take this from a session.
@@ -316,3 +319,36 @@ def submit_review(
 @app.get("/api/attorneys")
 def attorneys(conn: sqlite3.Connection = Depends(get_conn)) -> list[dict]:
     return [a.model_dump(mode="json") for a in repo.list_attorneys(conn)]
+
+
+# --------------------------------------------------------------------------- #
+# Static front end
+# --------------------------------------------------------------------------- #
+
+
+def mount_frontend(application: FastAPI, dist: Path) -> bool:
+    """Serve the built front end from this process, on the same port as the API.
+
+    Registered after every /api route so the catch-all can never shadow one -- a
+    mis-ordered SPA fallback turns a 404 from the API into a 200 of index.html,
+    and the front end then tries to parse HTML as JSON. Returns whether anything
+    was mounted; in development there is no build and Vite serves it instead.
+    """
+    if not dist.is_dir():
+        return False
+
+    assets = dist / "assets"
+    if assets.is_dir():
+        application.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @application.get("/{path:path}", include_in_schema=False)
+    def spa(path: str):
+        candidate = dist / path
+        if path and candidate.is_file() and dist in candidate.resolve().parents:
+            return FileResponse(candidate)
+        return FileResponse(dist / "index.html")
+
+    return True
+
+
+mount_frontend(app, FRONTEND_DIST)

@@ -179,3 +179,56 @@ def test_there_is_no_route_that_sends_anything(client) -> None:
     assert mutating == {"/api/emails/{email_id}/review"}, (
         f"the only write in this API should be a review; found {mutating}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Serving the built front end
+# --------------------------------------------------------------------------- #
+
+
+def test_the_spa_fallback_never_shadows_an_api_route(tmp_path) -> None:
+    """A mis-ordered catch-all turns a 404 from the API into a 200 of index.html,
+    and the front end then tries to parse HTML as JSON. Registration order is the
+    only thing preventing that, so it is asserted rather than assumed.
+
+    Built on a fresh app: the real one mounts its own dist at import time when a
+    build is present, and two mounts on /assets would test the wrong one.
+    """
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient as Client
+
+    from intake.api.main import mount_frontend
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>built</title>")
+    (dist / "assets" / "app.js").write_text("console.log(1)")
+
+    application = FastAPI()
+
+    @application.get("/api/thing/{name}")
+    def thing(name: str):
+        if name != "real":
+            raise HTTPException(status_code=404, detail="no such thing")
+        return {"ok": True}
+
+    assert mount_frontend(application, dist) is True
+    client = Client(application)
+
+    assert client.get("/").text.startswith("<!doctype html>")
+    assert client.get("/queue/em-003").text.startswith("<!doctype html>"), "client routes"
+    assert client.get("/assets/app.js").status_code == 200
+
+    assert client.get("/api/thing/real").json() == {"ok": True}
+    assert client.get("/api/thing/missing").status_code == 404, (
+        "the catch-all must not turn an API 404 into an index.html 200"
+    )
+
+
+def test_the_api_runs_without_a_front_end_build(tmp_path) -> None:
+    """Development, and any deployment that serves the front end elsewhere."""
+    from fastapi import FastAPI
+
+    from intake.api.main import mount_frontend
+
+    assert mount_frontend(FastAPI(), tmp_path / "never-built") is False
