@@ -32,6 +32,33 @@ PRACTICE_AREA = {
     PracticeArea.UNKNOWN: "no identifiable area",
 }
 
+CONFLICT_RULE = {
+    "ADVERSE_PARTY_IS_CLIENT": "Acting against a client",
+    "PROSPECT_WAS_ADVERSE_PARTY": "Acted against this party before",
+    "SENDER_DOMAIN_MATCHES_CLIENT": "Sender's domain belongs to a client",
+}
+
+# Which column of which record the rule actually read. A reviewer checking the
+# finding by hand needs to know where to look, and "adverse_parties" is a column
+# name rather than a place.
+MATCHED_FIELD = {
+    "display_name": "the client's name on file",
+    "adverse_parties": "the adverse parties on that matter",
+    "domains": "the domains on file for that client",
+}
+
+# Entity-type abbreviations as a lawyer writes them, not as the matcher keys them.
+ENTITY_TYPE = {
+    "LLC": "LLC", "INC": "Inc.", "CORP": "Corp.", "LTD": "Ltd.", "LLP": "LLP",
+    "PLLC": "PLLC", "PLC": "PLC", "CO": "Co.", "LP": "LP", "PC": "P.C.",
+    "PA": "P.A.", "GMBH": "GmbH", "SA": "S.A.", "NV": "N.V.", "BV": "B.V.",
+}
+
+RECORD_KIND = {
+    "client": "Client record",
+    "matter": "Matter record",
+}
+
 PARTY_ROLE = {
     PartyRole.PROSPECTIVE_CLIENT: "the prospective client",
     PartyRole.OPPOSING: "the opposing party",
@@ -98,3 +125,66 @@ def practice_area(area: PracticeArea | None) -> str:
 
 def party_role(role: PartyRole | None) -> str:
     return PARTY_ROLE.get(role, "a party") if role else "a party"
+
+
+def conflict_rule(rule_id: str | None) -> str:
+    """The name of a conflict rule, as a person would say it.
+
+    Unmapped ids still come out as words rather than as a constant, so a rule
+    added without a label here degrades to readable instead of to shouting.
+    """
+    if not rule_id:
+        return "Conflicts rule"
+    known = CONFLICT_RULE.get(rule_id)
+    if known:
+        return known
+    words = rule_id.replace("_", " ").lower()
+    return words[:1].upper() + words[1:]
+
+
+def matched_field(name: str | None) -> str:
+    if not name:
+        return "an unnamed field"
+    return MATCHED_FIELD.get(name, name.replace("_", " "))
+
+
+def record_kind(kind: str | None) -> str:
+    if not kind:
+        return "Record"
+    return RECORD_KIND.get(kind, kind.replace("_", " ").capitalize())
+
+
+def entity_type(code: str | None) -> str:
+    """An entity-type code as it is written on a letterhead: LTD -> Ltd."""
+    if not code:
+        return "no stated entity type"
+    return ENTITY_TYPE.get(code.upper(), code)
+
+
+def stop(text: str) -> str:
+    """End a sentence without doubling a full stop.
+
+    Company names end in "Ltd." and "Inc." often enough that a naive f-string
+    produces "a matter run for Harborview Hospitality Group Co..", which is the
+    kind of detail that tells a reader nobody looked.
+    """
+    return text if text.rstrip().endswith(".") else text + "."
+
+
+def typeset(text: str) -> str:
+    """ASCII dash stand-ins to real dashes, for prose about a record.
+
+    The firm's stored captions use "--" the way a typewriter did. That spelling is
+    load-bearing everywhere else -- it is part of the email text the model was
+    prompted with, and the cached responses are keyed on that text -- so it is
+    fixed here, where a person reads it, rather than in the data.
+    """
+    return text.replace(" -- ", " \u2014 ").replace("--", "\u2014")
+
+
+def date_in_words(value: object) -> str:
+    """A date a reviewer can read without parsing it: 11 March 2024."""
+    try:
+        return f"{value.day} {value.strftime('%B %Y')}"  # type: ignore[attr-defined]
+    except AttributeError:
+        return str(value)

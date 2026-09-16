@@ -40,9 +40,18 @@ def client(cid: str, name: str, domains=(), emails=()) -> ClientRecord:
     )
 
 
-def matter(mid: str, client_id: str, adverse: list[str], status=MatterStatus.OPEN) -> MatterRecord:
+def matter(
+    mid: str,
+    client_id: str,
+    adverse: list[str],
+    status=MatterStatus.OPEN,
+    caption: str | None = None,
+) -> MatterRecord:
+    # A caption shaped like a real one, because explanations quote it and a
+    # fixture that reads "cli-1 matter" would hide wire format leaking into prose.
     return MatterRecord(
-        id=mid, client_id=client_id, caption=f"{client_id} matter",
+        id=mid, client_id=client_id,
+        caption=caption or f"Acme Holdings v. {adverse[0] if adverse else 'Respondent'}",
         practice_area=PracticeArea.COMMERCIAL_LITIGATION, status=status,
         opened_on=date(2022, 1, 1),
         closed_on=date(2023, 6, 1) if status == MatterStatus.CLOSED else None,
@@ -138,7 +147,10 @@ def test_a_different_entity_type_is_not_claimed_as_the_same_client() -> None:
     assert len(hits) == 1
     assert hits[0].severity == ConflictSeverity.POSSIBLE
     assert "different entity type" in hits[0].explanation
-    assert "LTD vs LLP" in hits[0].explanation
+    # Both registrations are named, as a lawyer writes them rather than as the
+    # matcher keys them.
+    assert "Ltd." in hits[0].explanation and "LLP" in hits[0].explanation
+    assert "cannot tell them apart" in hits[0].explanation
 
 
 def test_an_unrelated_company_raises_nothing() -> None:
@@ -193,7 +205,7 @@ def test_a_closed_matter_does_not_reduce_the_severity() -> None:
     )
     assert len(closed_hits) == len(open_hits) == 1
     assert closed_hits[0].severity == open_hits[0].severity == ConflictSeverity.PROBABLE
-    assert "closed matter does not clear this" in closed_hits[0].explanation
+    assert "does not clear the conflict" in closed_hits[0].explanation
 
 
 def test_a_party_with_no_stated_role_is_still_checked_as_a_prospect() -> None:
@@ -301,3 +313,77 @@ def test_two_rules_firing_on_one_inquiry_are_both_reported() -> None:
         RULE_ADVERSE_PARTY_IS_CLIENT,
         RULE_PROSPECT_WAS_ADVERSE_PARTY,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Explanations are read by people
+# --------------------------------------------------------------------------- #
+
+
+def test_every_rule_has_a_name_a_person_would_say() -> None:
+    """A reviewer should never be shown PROSPECT_WAS_ADVERSE_PARTY. The id stays on
+    the model for the eval and for bug reports; the label is what the UI renders,
+    and every rule this module can fire must have one."""
+    from intake.domain.labels import CONFLICT_RULE
+
+    declared = {
+        RULE_ADVERSE_PARTY_IS_CLIENT,
+        RULE_PROSPECT_WAS_ADVERSE_PARTY,
+        RULE_SENDER_DOMAIN_MATCHES_CLIENT,
+    }
+    assert declared <= set(CONFLICT_RULE), "a rule with no label shouts its constant"
+    for label in CONFLICT_RULE.values():
+        assert label != label.upper() and "_" not in label
+
+
+def test_an_unlabelled_rule_degrades_to_words_not_to_shouting() -> None:
+    from intake.domain.labels import conflict_rule
+
+    assert conflict_rule("SOME_NEW_RULE") == "Some new rule"
+
+
+def test_an_identical_name_is_not_quoted_back_twice() -> None:
+    """"'Terrence Ortega' is asking, and is the same name as 'Terrence Ortega'" is
+    how a machine writes. When the spellings match, say so once."""
+    hits = check(
+        [party("Terrence Ortega", PartyRole.PROSPECTIVE_CLIENT)],
+        [client("cli-1", "Saoirse Sandoval")],
+        # A caption that does not name him, so the count below measures the match
+        # clause rather than an incidental mention.
+        [matter("mat-1", "cli-1", ["Terrence Ortega"], caption="In re Sandoval Trust")],
+    )
+    assert len(hits) == 1
+    assert hits[0].explanation.count("Terrence Ortega") == 1
+    assert "exactly that name" in hits[0].explanation
+
+
+def test_no_explanation_leaks_a_record_id_or_a_column_name() -> None:
+    """Record ids and column names belong in the reference row beside the finding,
+    where they are labelled, not loose in a sentence."""
+    import re
+
+    hits = check(
+        [party("Meridian Mfg. Corp.", PartyRole.OPPOSING),
+         party("Granite Bay Textiles L.L.C.", PartyRole.PROSPECTIVE_CLIENT)],
+        [client("cli-1", "Meridian Manufacturing Corp.", domains=["stranger.example"])],
+        [matter("mat-1", "cli-1", ["Granite Bay Textiles L.L.C."])],
+    )
+    assert hits
+    row_id = re.compile(r"\b(?:cli|mat|em)-\d+\b")
+    snake = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b")
+    shouting = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]+)+\b")
+    for hit in hits:
+        text = hit.explanation
+        assert not row_id.search(text), text
+        assert not snake.search(text), text
+        assert not shouting.search(text), text
+
+
+def test_a_company_name_ending_in_a_period_does_not_double_it() -> None:
+    hits = check(
+        [party("Delphine Mbeki", PartyRole.PROSPECTIVE_CLIENT)],
+        [client("cli-1", "Harborview Hospitality Group Co.")],
+        [matter("mat-1", "cli-1", ["Delphine Mbeki"])],
+    )
+    assert len(hits) == 1
+    assert ".." not in hits[0].explanation

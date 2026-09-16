@@ -297,6 +297,34 @@ class ConflictHit(Frozen):
     score: float = Field(ge=0.0, le=1.0)
     explanation: str
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rule_label(self) -> str:
+        """`rule_id` as a person would say it.
+
+        The id stays on the model because it is what the eval scores against and
+        what a bug report should quote. It is not what a reviewer should be shown.
+        """
+        from intake.domain.labels import conflict_rule
+
+        return conflict_rule(self.rule_id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def matched_field_label(self) -> str:
+        """Where in the record the rule looked, named as a place rather than a column."""
+        from intake.domain.labels import matched_field
+
+        return matched_field(self.matched_field)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def matched_record_label(self) -> str:
+        """Which kind of record the id belongs to, so the id reads as a reference."""
+        from intake.domain.labels import record_kind
+
+        return record_kind(self.matched_record_kind)
+
 
 class Resolution(Frozen):
     email_id: str
@@ -384,6 +412,14 @@ class Reason(Frozen):
         from intake.domain.labels import field_heading
 
         return field_heading(self.field_path)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rule_label(self) -> str:
+        """The name of the rule that fired, in English. Empty when no rule did."""
+        from intake.domain.labels import conflict_rule
+
+        return conflict_rule(self.rule_id) if self.rule_id else ""
 
 
 class Decision(Frozen):

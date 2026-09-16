@@ -163,9 +163,11 @@ kbd {
 }
 /* The rule id is an identifier a reviewer can quote when clearing a conflict, so
    it stays verbatim -- deliberately, unlike the field paths it sits beside. */
+/* The rule that fired, named rather than spelled as a constant. Not mono: it is
+   a sentence fragment a person reads, not an identifier they retype. */
 .why-rule {
-  font-family: var(--mono); font-size: 9.5px; color: var(--ink-muted);
-  background: var(--surface-inset); padding: 1px 5px; border-radius: var(--r1);
+  font-size: 10.5px; color: var(--ink-muted);
+  background: var(--surface-inset); padding: 1px 6px; border-radius: var(--r1);
 }
 
 .detail-body { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(460px, 1fr); gap: var(--s5); align-items: start; }
@@ -304,12 +306,14 @@ kbd {
 .sev-possible { border-left-color: var(--serious); background: var(--serious-wash); }
 .sev-probable { border-left-color: var(--critical); background: var(--critical-wash); }
 .conflict header { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin-bottom: 5px; }
-.conflict header code { font-size: 10px; color: var(--ink-muted); }
+.conflict-rule { font-size: 11px; font-weight: 500; color: var(--ink-muted); }
 .conflict p { margin: 0 0 var(--s2); font-size: 12.5px; line-height: 1.5; }
 .conflict-ref { margin: 0; display: flex; gap: var(--s4); flex-wrap: wrap; }
 .conflict-ref > div { display: flex; gap: 5px; font-size: 11px; }
 .conflict-ref dt { color: var(--ink-muted); }
-.conflict-ref dd { margin: 0; font-family: var(--mono); }
+/* Only the record id is an identifier; the rest of the row is prose. */
+.conflict-ref dd { margin: 0; }
+.conflict-ref dd code { font-family: var(--mono); font-size: 10.5px; }
 
 .cleared { font-size: 12.5px; color: var(--good); margin: 0; }
 .warn { font-size: 12.5px; color: var(--critical); margin: var(--s2) 0 0; }

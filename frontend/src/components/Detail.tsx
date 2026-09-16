@@ -158,7 +158,9 @@ export function Detail({ detail, thresholds, onBack, onReviewed }: Props) {
                     <span className="why-where">
                       {humanize(rowLabels.get(reason.field_path ?? "") ?? reason.field_label)}
                     </span>
-                    {reason.rule_id && <code className="why-rule">{reason.rule_id}</code>}
+                    {reason.rule_label && (
+                      <span className="why-rule">{reason.rule_label}</span>
+                    )}
                   </span>
                 </button>
               </li>
@@ -226,12 +228,15 @@ export function Detail({ detail, thresholds, onBack, onReviewed }: Props) {
                 <article key={index} className={`conflict sev-${hit.severity}`}>
                   <header>
                     <SeverityChip severity={hit.severity} />
-                    <code>{hit.rule_id}</code>
+                    <span className="conflict-rule">{hit.rule_label}</span>
                   </header>
                   <p>{hit.explanation}</p>
                   <dl className="conflict-ref">
-                    <div><dt>Record</dt><dd>{hit.matched_record_id}</dd></div>
-                    <div><dt>Field</dt><dd>{hit.matched_field}</dd></div>
+                    <div>
+                      <dt>{hit.matched_record_label}</dt>
+                      <dd><code>{hit.matched_record_id}</code></dd>
+                    </div>
+                    <div><dt>Checked against</dt><dd>{hit.matched_field_label}</dd></div>
                     <div><dt>Matched</dt><dd>{hit.matched_value}</dd></div>
                   </dl>
                 </article>

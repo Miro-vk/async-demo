@@ -192,3 +192,36 @@ def test_a_failed_seed_leaves_the_database_untouched(tmp_path, monkeypatch) -> N
         assert len(repo.list_ground_truth(conn)) == 51
     finally:
         conn.close()
+
+
+def test_a_connection_survives_being_handed_to_another_thread(tmp_path) -> None:
+    """FastAPI runs a sync dependency and the sync endpoint it feeds on two
+    different threadpool threads, so a per-request connection is opened on one and
+    used on the next. That is a handoff -- one request owns the connection for its
+    whole life -- but sqlite3's default guard cannot tell a handoff from sharing
+    and raises ProgrammingError, which surfaces as an intermittent 500 depending
+    on which thread the pool happens to hand out.
+
+    TestClient serves every request from one thread and so never reproduces it;
+    this asserts the property directly instead of hoping a request trips it.
+    """
+    import threading
+
+    db = tmp_path / "handoff.sqlite3"
+    conn = repo.connect(db)
+    repo.initialize(conn)
+
+    failure: list[BaseException] = []
+
+    def read_from_another_thread() -> None:
+        try:
+            conn.execute("SELECT 1").fetchone()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
+            failure.append(exc)
+
+    worker = threading.Thread(target=read_from_another_thread)
+    worker.start()
+    worker.join()
+    conn.close()
+
+    assert not failure, f"connection is thread-bound: {failure[0]!r}"

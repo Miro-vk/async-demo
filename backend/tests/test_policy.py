@@ -398,13 +398,33 @@ def test_no_reason_message_leaks_wire_format() -> None:
     path = re.compile(r"\b(?:extraction|classification|resolution|dispatch)\.[a-z_]")
     # "party[2]" has no underscore and no dot, and is just as much wire format.
     indexed = re.compile(r"\b[a-z_]+\[\d+\]")
+    # "PROSPECT_WAS_ADVERSE_PARTY" and "cli-0195" are the other two shapes: a
+    # constant shouted at a reviewer, and a row id loose in a sentence.
+    shouting = re.compile(r"\b[A-Z]{2,}(?:_[A-Z]+)+\b")
+    row_id = re.compile(r"\b(?:cli|mat|em|atty)-\d+\b")
+
+    def leaks(text: str) -> bool:
+        return bool(
+            snake.search(text)
+            or path.search(text)
+            or indexed.search(text)
+            or shouting.search(text)
+            or row_id.search(text)
+        )
 
     offenders: list[str] = []
     for run in runs:
         for reason in run.decision.reasons:
-            text = reason.message
-            if snake.search(text) or path.search(text) or indexed.search(text):
+            if leaks(reason.message):
                 offenders.append(f"{run.email_id} [{reason.code.value}]: {reason.message}")
+            if leaks(reason.rule_label):
+                offenders.append(f"{run.email_id} rule label: {reason.rule_label}")
+        for hit in run.resolution.conflicts if run.resolution else []:
+            if leaks(hit.explanation):
+                offenders.append(f"{run.email_id} [{hit.rule_label}]: {hit.explanation}")
+            for label in (hit.rule_label, hit.matched_field_label, hit.matched_record_label):
+                if leaks(label):
+                    offenders.append(f"{run.email_id} label: {label}")
 
     assert not offenders, "wire format in text a human reads:\n" + "\n".join(offenders[:5])
 

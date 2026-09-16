@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from intake.domain import labels
 from intake.domain.enums import ConflictSeverity, MatchMethod, MatterStatus, PartyRole
 from intake.domain.models import ConflictHit, Email, Extraction
 from intake.domain.normalize import email_domain, is_generic_domain, suffix_class
@@ -43,20 +44,37 @@ OPPOSING_ROLES = {PartyRole.OPPOSING}
 CONFLICT_RELEVANT_ROLES = CLIENT_SIDE_ROLES | OPPOSING_ROLES
 
 
-def describe_match(method: MatchMethod, inquiry_name: str, record_name: str) -> str:
-    """How the two names matched, in words a reviewer can check in one read."""
+def name_match_clause(
+    method: MatchMethod, inquiry_name: str, record_name: str
+) -> tuple[str, str]:
+    """How the record's name relates to the inquiry's, plus any caveat it needs.
+
+    Returns (clause, caveat). The clause slots in after "the firm acts for" or
+    "has already acted against". When the two spellings are identical it says so
+    instead of quoting the same name back twice in one sentence, which is how a
+    machine writes and not how a person does.
+
+    The caveat is a whole sentence or an empty string, never a fragment, because
+    it has to survive being dropped into the middle of an explanation.
+    """
+    if inquiry_name.strip() == record_name.strip():
+        return "a party of exactly that name", ""
+
+    quoted = f"\u201c{record_name}\u201d"
     if method == MatchMethod.EXACT:
-        return "the same name as"
+        return f"{quoted}, the same name", ""
     if method == MatchMethod.NORMALIZED:
-        return "the same name, differently punctuated or abbreviated, as"
+        return f"{quoted}, the same name differently punctuated or abbreviated", ""
     if method == MatchMethod.STEM_ONLY:
-        left, right = suffix_class(inquiry_name), suffix_class(record_name)
+        left = labels.entity_type(suffix_class(inquiry_name))
+        right = labels.entity_type(suffix_class(record_name))
         return (
-            f"the same distinguishing name as, but a different entity type "
-            f"({left} vs {right}) -- these may be affiliated companies, which this "
-            f"system cannot determine, or unrelated ones sharing a name:"
+            f"{quoted}, the same distinguishing name under a different entity type "
+            f"({left} here, {right} on file)",
+            "Affiliated companies and unrelated companies that happen to share a "
+            "name look the same from here, and this system cannot tell them apart. ",
         )
-    return "a partial word-for-word match against"
+    return f"{quoted}, which shares most of its words", ""
 
 
 @dataclass(frozen=True)
@@ -103,8 +121,12 @@ def adverse_party_is_client(ctx: ConflictContext) -> list[ConflictHit]:
             else:
                 severity = ConflictSeverity.POSSIBLE
 
-            standing = "a current client" if current else "a former client (no open matters)"
-            how = describe_match(match.method, name, match.client.display_name)
+            standing = (
+                "a current client" if current else "a former client, with no open matters"
+            )
+            clause, caveat = name_match_clause(
+                match.method, name, match.client.display_name
+            )
             hits.append(
                 ConflictHit(
                     rule_id=RULE_ADVERSE_PARTY_IS_CLIENT,
@@ -116,10 +138,10 @@ def adverse_party_is_client(ctx: ConflictContext) -> list[ConflictHit]:
                     matched_value=match.client.display_name,
                     score=match.score,
                     explanation=(
-                        f"The inquiry names \u201c{name}\u201d as an opposing party. That is "
-                        f"{how} {standing}, {match.client.display_name} "
-                        f"({match.client.id}). If they are the same entity, acting "
-                        f"on this matter would put the firm against its own client."
+                        f"The inquiry names \u201c{name}\u201d as the opposing party. "
+                        f"The firm acts for {clause} \u2014 {standing}. {caveat}"
+                        f"If they are the same entity, taking this matter would put "
+                        f"the firm against someone it already represents."
                     ),
                 )
             )
@@ -149,12 +171,23 @@ def prospect_was_adverse_party(ctx: ConflictContext) -> list[ConflictHit]:
             )
             matter = match.matter
             client = ctx.records.client(matter.client_id)
-            client_name = client.display_name if client else matter.client_id
-            status = (
-                "closed " + matter.closed_on.isoformat()
-                if matter.status == MatterStatus.CLOSED and matter.closed_on
-                else matter.status.value
-            )
+            # A matter whose client record is missing is a data problem, not a
+            # reason to print a row id at a reviewer.
+            client_name = client.display_name if client else "a client not on file"
+            if matter.status == MatterStatus.CLOSED and matter.closed_on:
+                standing = (
+                    f"That matter closed on {labels.date_in_words(matter.closed_on)}, "
+                    f"which does not clear the conflict: the firm keeps what it "
+                    f"learned there."
+                )
+            elif matter.status == MatterStatus.CLOSED:
+                standing = (
+                    "That matter is closed, which does not clear the conflict: the "
+                    "firm keeps what it learned there."
+                )
+            else:
+                standing = "That matter is still open."
+            clause, caveat = name_match_clause(match.method, name, match.adverse_name)
             hits.append(
                 ConflictHit(
                     rule_id=RULE_PROSPECT_WAS_ADVERSE_PARTY,
@@ -166,11 +199,13 @@ def prospect_was_adverse_party(ctx: ConflictContext) -> list[ConflictHit]:
                     matched_value=match.adverse_name,
                     score=match.score,
                     explanation=(
-                        f"\u201c{name}\u201d is asking the firm to act, and is "
-                        f"{describe_match(match.method, name, match.adverse_name)} "
-                        f"\u201c{match.adverse_name}\u201d, an adverse party on {matter.id} "
-                        f"({matter.caption}), which the firm ran for {client_name}. "
-                        f"That matter is {status}; a closed matter does not clear this."
+                        f"\u201c{name}\u201d is asking the firm to act. The firm has "
+                        f"already acted against {clause}, as an adverse party on "
+                        + labels.stop(
+                            f"\u201c{labels.typeset(matter.caption)}\u201d, a matter "
+                            f"run for {client_name}"
+                        )
+                        + f" {caveat}{standing}"
                     ),
                 )
             )
@@ -224,11 +259,13 @@ def sender_domain_matches_client(ctx: ConflictContext) -> list[ConflictHit]:
                 matched_value=domain,
                 score=match.score,
                 explanation=(
-                    f"The sender writes from @{domain}, which belongs to client "
-                    f"{match.client.display_name} ({match.client.id}), but no party "
-                    f"named in the email matches that client. This could be the "
-                    f"client contacting us under a new name, or an employee writing "
-                    f"about something adverse to their employer. A human has to look."
+                    f"The sender writes from @{domain}, a domain on file for the "
+                    f"client {match.client.display_name}, but no party named in the "
+                    f"email matches that client. This could be the client writing "
+                    f"under a name the firm does not have on file, or an employee "
+                    f"writing about something adverse to their employer. Those two "
+                    f"need opposite handling and nothing in the email tells them "
+                    f"apart, so a person has to look."
                 ),
             )
         )

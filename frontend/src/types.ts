@@ -48,12 +48,19 @@ export interface Extraction {
 }
 
 export interface ConflictHit {
+  /** Machine-readable: what the eval scores and what a bug report quotes. Never rendered. */
   rule_id: string;
+  /** The same rule, named in English. Rendered. */
+  rule_label: string;
   severity: Severity;
   inquiry_party: string;
   matched_record_kind: "client" | "matter";
   matched_record_id: string;
   matched_field: string;
+  /** Where in the record the rule looked, as a place rather than a column name. */
+  matched_field_label: string;
+  /** "Client record" / "Matter record", so the id beside it reads as a reference. */
+  matched_record_label: string;
   matched_value: string;
   score: number;
   explanation: string;
@@ -96,7 +103,10 @@ export interface Reason {
   field_path: string | null;
   /** The same field, in English. Rendered. */
   field_label: string;
+  /** Machine-readable. Never rendered. */
   rule_id: string | null;
+  /** The rule that fired, in English. Empty when no rule did. Rendered. */
+  rule_label: string;
 }
 
 export interface StageTrace {

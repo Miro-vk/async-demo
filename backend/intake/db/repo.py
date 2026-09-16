@@ -35,7 +35,13 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    # check_same_thread=False because FastAPI runs a sync dependency and the sync
+    # endpoint it feeds on two different worker threads, so a per-request
+    # connection is opened on one and used on the next. That is a handoff, not
+    # sharing -- one request owns its connection for its whole life and closes it
+    # -- but sqlite3's default guard cannot tell the two apart and 500s on the
+    # difference, intermittently, depending on which thread the pool hands out.
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
