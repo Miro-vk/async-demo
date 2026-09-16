@@ -82,6 +82,15 @@ jobs:
           curl -sf http://localhost:8000/api/inbox | grep -q '"review"'
           echo "--- the front end is served on the same port ---"
           curl -sf http://localhost:8000/ | grep -qi '<!doctype html'
+          echo "--- the image knows which source it was built from ---"
+          # A stamp that degrades to empty is the failure this whole mechanism
+          # exists to prevent, and it degrades silently: the banner still prints,
+          # it just stops saying anything useful. Assert both halves are there.
+          health=$(curl -sf http://localhost:8000/api/health)
+          echo "$health" | grep -qE '"commit":"[0-9a-f]{7}"' \
+            || { echo "no commit in the stamp: $health"; exit 1; }
+          echo "$health" | grep -qE '"build":"[0-9a-f]{12}"' \
+            || { echo "no fingerprint in the stamp: $health"; exit 1; }
 
       - name: Container logs
         if: always()

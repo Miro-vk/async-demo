@@ -19,6 +19,19 @@ process:  ## run the inbox through all four stages and store the results
 	$(PY) -m intake.pipeline.process --db data/intake.sqlite3 --quiet
 
 demo:  ## build and run the whole thing in one container on :8000
+	@# The image is built from this checkout, not from the remote, so a stale
+	@# checkout produces a stale image and the rebuild looks like it did nothing.
+	@# Only the host can tell -- it needs a fetch, and the container has no network.
+	@git fetch --quiet origin 2>/dev/null || true
+	@upstream=$$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null); \
+	 behind=$$(git rev-list --count HEAD..$$upstream 2>/dev/null || echo 0); \
+	 if [ "$$behind" -gt 0 ]; then \
+	   echo; \
+	   echo "  Your checkout is $$behind commit(s) behind $$upstream."; \
+	   echo "  The image is built from this directory, so it will not contain them."; \
+	   echo "  Run 'git pull' first, or build this revision knowingly."; \
+	   echo; \
+	 fi
 	docker compose up --build --force-recreate
 
 api:  ## serve the API on :8000

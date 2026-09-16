@@ -10,6 +10,14 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
+# Which commit this is. Resolved in a stage of its own so that .git, and the
+# history it carries, never lands in a layer of the image that ships.
+FROM python:3.11-slim AS commit
+WORKDIR /src
+COPY .git .git
+COPY backend/intake/buildinfo.py ./
+RUN python buildinfo.py --git-dir .git --out SOURCE
+
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -30,13 +38,17 @@ COPY --from=ui /ui/dist frontend/dist
 RUN python -m intake.db.seed --db data/intake.sqlite3 \
  && python -m intake.pipeline.process --db data/intake.sqlite3 --provider replay --quiet
 
-# A fingerprint of what actually went into this image. Decisions are written to
-# the database during the build above, so `docker compose up` without --build
-# serves the old wording from the old image and looks like a code change that did
-# not take. Printing this at startup makes that diagnosable in one glance instead
-# of by reading the source and guessing.
-RUN find backend frontend/dist data -name __pycache__ -prune -o -type f -print0 \
-    | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12 > BUILD_ID
+# What this image is and where it came from. Decisions are written to the
+# database during the build above, so `docker compose up` without --build serves
+# the old wording from the old image and looks like a code change that did not
+# take. The fingerprint says whether the image is the same one; the commit says
+# whether it is the source you meant, which is the half you can act on.
+#
+# Last, so that a new commit does not invalidate the dependency install or the
+# pipeline run above it.
+COPY --from=commit /src/SOURCE ./SOURCE
+RUN python -m intake.buildinfo --root . --source SOURCE --out BUILD_STAMP \
+ && rm SOURCE
 
 EXPOSE 8000
 CMD ["uvicorn", "intake.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

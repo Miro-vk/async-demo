@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from intake.buildinfo import read as read_stamp
 from intake.db import repo
 from intake.domain.enums import DecisionAction, ReviewOutcome
 from intake.domain.models import FieldEdit, PipelineResult, ReviewAction
@@ -51,19 +52,11 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-def build_id() -> str:
-    """Fingerprint of the image's contents, written at build time."""
-    stamp = REPO_ROOT / "BUILD_ID"
-    try:
-        return stamp.read_text(encoding="utf-8").strip() or "unstamped"
-    except OSError:
-        return "source checkout"
-
-
 def _startup_banner() -> str:
     lines = [
         "",
-        f"  Client intake triage  ·  http://localhost:8000  ·  build {build_id()}",
+        "  Client intake triage  ·  http://localhost:8000",
+        f"  {read_stamp(REPO_ROOT).describe()}",
         "",
     ]
     try:
@@ -197,9 +190,12 @@ class ThresholdsResponse(BaseModel):
 
 @app.get("/api/health")
 def health(conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    stamp = read_stamp(REPO_ROOT)
     return {
         "ok": True,
-        "build": build_id(),
+        "build": stamp.build,
+        "commit": stamp.commit,
+        "branch": stamp.branch,
         "emails": len(repo.list_emails(conn)),
         "runs": len(repo.list_runs(conn)),
         "corpus_seed": repo.get_meta(conn, "corpus_seed"),

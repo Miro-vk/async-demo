@@ -180,26 +180,56 @@ check — and it would be dishonest to present the mechanism as battle-tested he
 ## Running it
 
 ```bash
-docker compose up --build       # everything, on :8000
+make demo                       # everything, on :8000
 ```
 
-Pass `--build` after pulling changes. The corpus is generated and the inbox is
-processed *during the image build*, so decisions — including the wording of every
-review reason — are baked into the database inside the image. Without `--build`,
-compose reuses the old image and its old decisions, and a code change looks like
-it did not take. The build fingerprint in the startup banner tells you which is
-which.
+Or, without `make`:
+
+```bash
+docker compose up --build       # the same thing, minus the staleness check below
+```
 
 It prints what it is holding when it starts:
 
 ```
-  Client intake triage  ·  http://localhost:8000  ·  build 4f2a9c1d8e03
+  Client intake triage  ·  http://localhost:8000
+  built from 3ea7db9 (claude/inspiring-mendel-mdxt7i) · image 9a8ef148270c
 
   51 emails from seed 20260517, already processed.
   26 waiting in the review queue.
 
   Synthetic data. Nothing here is ever sent to anyone.
 ```
+
+### Why the second line is there
+
+The corpus is generated and the inbox is processed *during the image build*, so
+every decision — including the wording of every review reason — is baked into the
+database inside the image. Nothing is recomputed at startup. That makes two
+different kinds of staleness possible, and they look identical from the outside:
+
+| What went wrong | What the banner shows |
+| --- | --- |
+| Restarted without `--build` | the same **image** fingerprint as before |
+| Rebuilt, but the checkout is behind | a new image, an old **commit** |
+
+The fingerprint hashes everything that went into the image, so it settles the
+first. It cannot settle the second: twelve hex digits can be compared against the
+last twelve you saw and nothing else. The commit can be held against `git log`,
+which is why it is there.
+
+The image is built from your working directory, not from the remote, so a stale
+checkout produces a stale image no matter how many times you pass `--build`. Only
+the host can notice that — it needs a fetch, and the container has no network by
+design. `make demo` fetches and says so before it builds:
+
+```
+  Your checkout is 1 commit(s) behind origin/claude/inspiring-mendel-mdxt7i.
+  The image is built from this directory, so it will not contain them.
+  Run 'git pull' first, or build this revision knowingly.
+```
+
+`/api/health` reports the same three fields, for when the banner has scrolled away.
 
 If you see `Container ... Running` followed by silence, the container was already
 up and compose is attaching to a log stream with nothing new in it — the banner
