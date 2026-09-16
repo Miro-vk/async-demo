@@ -1,0 +1,15 @@
+# Everything but the few bytes that name the commit. buildinfo reads these at
+# build time so the image can say which source it came from.
+.git
+!.git/HEAD
+!.git/packed-refs
+!.git/refs
+!.git/refs/**
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+data/intake.sqlite3
+**/__pycache__
+.pytest_cache
+*.egg-info

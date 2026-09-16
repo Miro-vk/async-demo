@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Unit tests
+        run: python -m pytest backend/tests -q
+
+      # The demo's whole claim is that a given seed reproduces a given corpus.
+      # Regenerate it here and fail if anything moved: this catches a generator
+      # change that silently invalidates the checked-in corpus or its cached prose.
+      - name: Corpus is reproducible from its seed
+        run: |
+          python -m intake.db.seed --db "${RUNNER_TEMP}/ci.sqlite3"
+          git diff --exit-code -- data/corpus.json data/naturalized.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b --noEmit
+
+      # The span segmenter is the only real logic on this side, and it shipped
+      # three bugs in a row -- each one leaving some field's evidence invisible.
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # The README's first command is `docker compose up`. Building the image here is
+  # the only way that claim gets checked -- it cannot be verified in the sandbox
+  # this repo was written in, which has a docker CLI but no daemon.
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t intake-demo .
+
+      - name: Boot it and check it actually serves
+        run: |
+          docker run -d --name intake -p 8000:8000 intake-demo
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/health >/dev/null && break
+            sleep 2
+          done
+          echo "--- health ---"
+          curl -sf http://localhost:8000/api/health | tee /dev/stderr | grep -q '"ok":true'
+          echo "--- the inbox has been processed at build time ---"
+          curl -sf http://localhost:8000/api/inbox | grep -q '"review"'
+          echo "--- the front end is served on the same port ---"
+          curl -sf http://localhost:8000/ | grep -qi '<!doctype html'
+          echo "--- the image knows which source it was built from ---"
+          # A stamp that degrades to empty is the failure this whole mechanism
+          # exists to prevent, and it degrades silently: the banner still prints,
+          # it just stops saying anything useful. Assert both halves are there.
+          health=$(curl -sf http://localhost:8000/api/health)
+          echo "$health" | grep -qE '"commit":"[0-9a-f]{7}"' \
+            || { echo "no commit in the stamp: $health"; exit 1; }
+          echo "$health" | grep -qE '"build":"[0-9a-f]{12}"' \
+            || { echo "no fingerprint in the stamp: $health"; exit 1; }
+
+      - name: Container logs
+        if: always()
+        run: docker logs intake || true
