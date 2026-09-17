@@ -58,8 +58,8 @@ docker compose up        # then open http://localhost:8000
 ```
 
 That is the whole setup. No account, no API key, no internet connection needed: the
-demo has a recording of every answer the AI gave when it was built, and plays them
-back from a file. Same emails, same decisions, every time you run it.
+demo ships with every response Claude gave when it was built, cached on disk and
+replayed. Same emails, same decisions, every time you run it.
 
 There is more on running it — and on rebuilding after a code change — further down.
 
@@ -119,15 +119,15 @@ records which names it actually searched for, and flags a check that searched fo
 nothing.
 
 This is not hypothetical. One email in the demo is someone writing on behalf of an
-injured friend, without ever naming her. The AI read that correctly and marked the
-sender as a bystander rather than the client. But an earlier version of the rules
+injured friend, without ever naming her. The model read that correctly and marked
+the sender as a third party rather than the client. But an earlier version of the rules
 only checked that *somebody* had been named, so the conflict search ran against the
 friend who was writing in, found nothing, and let the email through. A clean result
 about the wrong person is worse than no result at all.
 
-**A confidence score nobody can check is worse than no score at all.** AI models are
-wrong in exactly the same confident tone they use when they are right, and the
-certainty they report about themselves does not mean much. So every fact the system
+**A confidence score nobody can check is worse than no score at all.** Language
+models are wrong in exactly the same confident register they use when they are
+right, and their self-reported confidence is not calibrated. So every fact the system
 pulls out comes with a pointer to the words in the email it came from. Hover over a
 fact on screen and those words light up.
 
@@ -154,19 +154,19 @@ wrong.
 
 | Step | The question it answers | Who answers it |
 |---|---|---|
-| **Classify** | Is this new work, an existing client, or a sales pitch? | AI |
-| **Extract** | Who is involved, what kind of case, where, when, how much? | AI |
+| **Classify** | Is this new work, an existing client, or a sales pitch? | Claude |
+| **Extract** | Who is involved, what kind of case, where, when, how much? | Claude |
 | **Resolve** | Do we know any of these people, and is there a conflict? | plain rules |
 | **Dispatch** | Which lawyer, and what do we say back? | plain rules |
 | **Decide** | Act on this, or hand it to a person? | plain rules |
 
-Only the first two steps involve AI at all. Everything with a consequence — whether
-there is a conflict, who gets the case, whether to proceed — is decided by ordinary
-rules you can read.
+Only the first two steps call a model. Everything with a consequence — whether there
+is a conflict, who gets the case, whether to proceed — is decided by deterministic
+rules you can read end to end.
 
-The reply is a fill-in-the-blanks template rather than something the AI writes. A
-firm's first message to a potential client is the riskiest thing it sends, which is
-why real firms use approved templates for it. The AI reads. The rules decide.
+The acknowledgment is a filled template rather than generated prose. A firm's first
+contact with a prospective client is the most dangerous thing it sends, which is why
+firms use vetted templates for exactly that. The model reads. The rules decide.
 
 ### Where the bar is set
 
@@ -180,7 +180,7 @@ either above 0.88 or below 0.60, with very little in the middle — and the cuto
 sit in that empty gap.
 
 They are also deliberately different from each other, because **a cutoff is a
-statement about consequences, not about the AI.** A person's name feeds the conflict
+statement about consequences, not about the model.** A person's name feeds the conflict
 check, so it has to clear 0.70. The type of case only decides which lawyer gets the
 email, so 0.60 is enough. Someone mentioned in passing, who no rule ever looks up,
 has no bar at all.
@@ -195,7 +195,7 @@ a conflict" is no use at all to the person who has to clear it.
 
 On screen the email itself is the main thing, not a panel off to one side. Hover a
 fact and the words it came from light up in the email. Hover the email and you find
-the fact. If the AI ever quotes something that is not in the email, that quote
+the fact. If the model ever quotes something that is not in the email, that quote
 appears beside it with a line through it, because there is nowhere in the text to
 put it. That absence is the finding.
 
@@ -205,7 +205,7 @@ put it. That absence is the finding.
 
 Because a script invented the emails, it knows every fact it hid in them. That means
 the system can be scored against the right answers instead of being described in
-adjectives. Running `make eval` against real AI output gives:
+adjectives. Running `make eval` against real Claude Opus 5 output gives:
 
 ```
 CLASSIFY   accuracy 98.0% (50/51)
@@ -243,7 +243,7 @@ ever above zero.
 
 ### One honest caveat
 
-Across 274 extracted facts, the AI never once quoted something that was not in the
+Across 274 extracted values the model never once quoted text that was not in the
 email. So the check that catches invented quotes has never actually had to fire on
 this data. It is tested thoroughly in isolation and it works, but calling it
 battle-tested here would be overselling it.
